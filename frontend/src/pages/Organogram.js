@@ -122,9 +122,20 @@ export default function Organogram() {
     }, []);
   };
 
+  const filterByDept = (nodes, deptId) => {
+    if (!deptId) return nodes;
+    return nodes.reduce((acc, node) => {
+      const children = filterByDept(node.children || [], deptId);
+      if (node.department_id === deptId || children.length > 0) {
+        acc.push({ ...node, children });
+      }
+      return acc;
+    }, []);
+  };
+
   const tree = data?.tree || [];
   const filtered = search ? filterTree(tree, search) : tree;
-  const displayTree = deptFilter ? filtered.map(n => ({ ...n, children: [] })).filter(n => n.department_id === deptFilter || n.children?.length > 0) : filtered;
+  const displayTree = deptFilter ? filterByDept(filtered, deptFilter) : filtered;
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-2 border-oe-primary border-t-transparent rounded-full animate-spin" /></div>;
 
@@ -163,11 +174,11 @@ export default function Organogram() {
           className="min-w-max flex justify-center py-8 px-8"
           style={{ transform: `scale(${zoom})`, transformOrigin: 'top center', transition: 'transform 0.2s' }}
         >
-          {filtered.length === 0 ? (
+          {displayTree.length === 0 ? (
             <div className="text-oe-muted text-sm py-12">No employees match your search</div>
           ) : (
             <div className="flex gap-8 flex-wrap justify-center">
-              {filtered.map(node => <TreeNode key={node.id} node={node} navigate={navigate} level={0} />)}
+              {displayTree.map(node => <TreeNode key={node.id} node={node} navigate={navigate} level={0} />)}
             </div>
           )}
         </div>
