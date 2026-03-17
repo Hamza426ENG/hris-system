@@ -135,7 +135,7 @@ async function executeTool(name, args) {
         params.push(Math.min(limit, 50));
         const result = await db.query(`
           SELECT e.id, e.employee_id, e.first_name, e.last_name, e.work_email,
-            e.status, e.employment_type, e.hire_date, e.phone,
+            e.status, e.employment_type, e.hire_date, e.phone_primary as phone,
             d.name as department, p.title as position
           FROM employees e
           LEFT JOIN departments d ON d.id = e.department_id
