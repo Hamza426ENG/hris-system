@@ -215,6 +215,9 @@ router.delete('/:id', async (req, res) => {
 // PUT /api/employees/:id/avatar
 router.put('/:id/avatar', async (req, res) => {
   try {
+    if (!['super_admin', 'hr_admin'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Only HR and Admin can update employee photos' });
+    }
     const { avatar_url } = req.body;
     if (!avatar_url) return res.status(400).json({ error: 'avatar_url required' });
     const result = await db.query(
