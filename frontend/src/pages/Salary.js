@@ -10,100 +10,186 @@ const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'sho
 
 const downloadSalarySlip = (salary, employeeName) => {
   const name = employeeName || salary.employee_name || 'Employee';
-  const period = fmtDate(salary.effective_date);
-  const allowances = [
-    ['Housing Allowance', salary.housing_allowance],
+  const now = new Date();
+  const generatedOn = now.toLocaleDateString('en-US', { day: '2-digit', month: 'long', year: 'numeric' });
+  const periodMonth = salary.effective_date
+    ? new Date(salary.effective_date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    : generatedOn;
+
+  const earnings = [
+    ['Basic Salary',        salary.basic_salary],
+    ['Housing Allowance',   salary.housing_allowance],
     ['Transport Allowance', salary.transport_allowance],
-    ['Meal Allowance', salary.meal_allowance],
-    ['Medical Allowance', salary.medical_allowance],
-    ['Mobile Allowance', salary.mobile_allowance],
-    ['Other Allowances', salary.other_allowances],
+    ['Meal Allowance',      salary.meal_allowance],
+    ['Medical Allowance',   salary.medical_allowance],
+    ['Mobile Allowance',    salary.mobile_allowance],
+    ['Other Allowances',    salary.other_allowances],
   ].filter(([, v]) => parseFloat(v) > 0);
+
   const deductions = [
-    ['Tax', salary.tax_deduction],
-    ['Pension', salary.pension_deduction],
+    ['Income Tax',       salary.tax_deduction],
+    ['Pension',          salary.pension_deduction],
     ['Health Insurance', salary.health_insurance],
     ['Other Deductions', salary.other_deductions],
   ].filter(([, v]) => parseFloat(v) > 0);
 
-  const row = (label, value, color = '#1e293b') =>
-    `<tr><td style="padding:7px 0;color:#64748b;font-size:13px">${label}</td><td style="padding:7px 0;text-align:right;font-weight:600;color:${color};font-size:13px">${fmtCurrency(value)}</td></tr>`;
+  const totalDeductions = deductions.reduce((s, [, v]) => s + parseFloat(v || 0), 0);
 
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-  <title>Salary Slip – ${name}</title>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Segoe UI',Inter,system-ui,sans-serif;background:#f8fafc;color:#1e293b;padding:32px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-    @media print{body{padding:0}@page{margin:20mm}}
-    .slip{max-width:680px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)}
-    .header{background:linear-gradient(135deg,#1D6BE4,#7C3AED);padding:32px 36px;color:#fff}
-    .logo{font-size:22px;font-weight:800;letter-spacing:-0.5px;margin-bottom:4px}
-    .logo span{opacity:.7;font-weight:400}
-    .slip-title{font-size:13px;opacity:.85;margin-top:2px;text-transform:uppercase;letter-spacing:.08em}
-    .meta{display:flex;justify-content:space-between;align-items:flex-end;margin-top:20px}
-    .emp-name{font-size:20px;font-weight:700}
-    .emp-sub{font-size:12px;opacity:.8;margin-top:2px}
-    .period-badge{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;backdrop-filter:blur(4px)}
-    .body{padding:28px 36px}
-    .section{margin-bottom:24px}
-    .section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#94a3b8;border-bottom:1px solid #e2e8f0;padding-bottom:8px;margin-bottom:4px}
-    table{width:100%;border-collapse:collapse}
-    .totals{background:#f8fafc;border-radius:12px;padding:16px 20px;margin-top:24px;display:flex;gap:12px;justify-content:space-between;flex-wrap:wrap}
-    .total-box{flex:1;min-width:120px;text-align:center;padding:12px;background:#fff;border-radius:10px;border:1px solid #e2e8f0}
-    .total-box .label{font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
-    .total-box .value{font-size:18px;font-weight:800}
-    .gross .value{color:#059669}
-    .deduct .value{color:#dc2626}
-    .net .value{color:#1D6BE4}
-    .footer{padding:16px 36px;border-top:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;background:#f8fafc}
-    .footer-note{font-size:11px;color:#94a3b8}
-    .footer-brand{font-size:11px;font-weight:700;color:#1D6BE4}
-    .actions{display:flex;gap:12px;justify-content:center;margin-top:24px}
-    .print-btn{padding:10px 32px;background:linear-gradient(135deg,#1D6BE4,#7C3AED);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;letter-spacing:.02em}
-    .close-btn{padding:10px 20px;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
-    @media print{.actions{display:none}}
-  </style></head><body>
-  <div class="slip">
-    <div class="header">
-      <div class="logo">One<span>Edge</span> <span style="font-size:14px;font-weight:500">HRIS</span></div>
-      <div class="slip-title">Official Salary Slip</div>
-      <div class="meta">
-        <div>
-          <div class="emp-name">${name}</div>
-          <div class="emp-sub">${salary.emp_code || ''} ${salary.department_name ? '· ' + salary.department_name : ''} ${salary.position_title ? '· ' + salary.position_title : ''}</div>
-        </div>
-        <div class="period-badge">Period: ${period}</div>
-      </div>
-    </div>
-    <div class="body">
-      <div class="section">
-        <div class="section-title">Earnings</div>
-        <table>
-          ${row('Basic Salary', salary.basic_salary)}
-          ${allowances.map(([l, v]) => row(l, v)).join('')}
-        </table>
-      </div>
-      ${deductions.length ? `<div class="section">
-        <div class="section-title">Deductions</div>
-        <table>${deductions.map(([l, v]) => row(l, v, '#dc2626')).join('')}</table>
-      </div>` : ''}
-      <div class="totals">
-        <div class="total-box gross"><div class="label">Gross Salary</div><div class="value">${fmtCurrency(salary.gross_salary)}</div></div>
-        <div class="total-box deduct"><div class="label">Total Deductions</div><div class="value">-${fmtCurrency(deductions.reduce((s,[,v])=>s+parseFloat(v||0),0))}</div></div>
-        <div class="total-box net"><div class="label">Net Salary</div><div class="value">${fmtCurrency(salary.net_salary)}</div></div>
-      </div>
-    </div>
-    <div class="footer">
-      <div class="footer-note">Generated on ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})} · Confidential</div>
-      <div class="footer-brand">OneEdge HRIS</div>
-    </div>
+  // Build matching rows for the two-column table (pad shorter side with empty rows)
+  const maxRows = Math.max(earnings.length, deductions.length);
+  const earningsRows = [...earnings, ...Array(maxRows - earnings.length).fill(['', ''])];
+  const deductionsRows = [...deductions, ...Array(maxRows - deductions.length).fill(['', ''])];
+
+  const tableRows = earningsRows.map(([el, ev], i) => {
+    const [dl, dv] = deductionsRows[i];
+    return `<tr>
+      <td class="item-label">${el}</td>
+      <td class="item-val">${ev ? fmtCurrency(ev) : ''}</td>
+      <td class="divider"></td>
+      <td class="item-label deduct-label">${dl}</td>
+      <td class="item-val deduct-val">${dv ? fmtCurrency(dv) : ''}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Salary Slip – ${name} – ${periodMonth}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',Arial,sans-serif;font-size:13px;color:#111;background:#fff;padding:28px 32px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  @media print{body{padding:0}@page{size:A4;margin:15mm 15mm 20mm 15mm}.no-print{display:none!important}}
+
+  /* ── Company header ── */
+  .co-header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1D6BE4;padding-bottom:14px;margin-bottom:16px}
+  .co-name{font-size:22px;font-weight:800;letter-spacing:-0.5px;color:#1D6BE4}
+  .co-name span{color:#7C3AED}
+  .co-tagline{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
+  .slip-badge{text-align:right}
+  .slip-badge .title{font-size:15px;font-weight:700;color:#1e293b;letter-spacing:.02em}
+  .slip-badge .period{font-size:11px;color:#64748b;margin-top:3px}
+
+  /* ── Employee info grid ── */
+  .emp-info{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid #cbd5e1;margin-bottom:16px}
+  .info-row{display:contents}
+  .info-cell{padding:6px 12px;border-bottom:1px solid #e2e8f0;font-size:12px}
+  .info-cell:nth-child(odd){border-right:1px solid #e2e8f0;background:#f8fafc}
+  .info-cell .lbl{color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:1px}
+  .info-cell .val{font-weight:600;color:#1e293b}
+
+  /* ── Earnings / Deductions two-column table ── */
+  .pay-table{width:100%;border-collapse:collapse;border:1px solid #cbd5e1;margin-bottom:16px}
+  .pay-table thead tr{background:#1D6BE4;color:#fff}
+  .pay-table thead th{padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em}
+  .pay-table thead th.right{text-align:right}
+  .pay-table .divider{width:1px;background:#cbd5e1;padding:0}
+  .pay-table tbody tr:nth-child(even){background:#f8fafc}
+  .pay-table tbody td{padding:7px 12px;border-bottom:1px solid #e2e8f0;font-size:12.5px}
+  .item-label{color:#374151;width:34%}
+  .item-val{text-align:right;font-weight:500;color:#1e293b;width:16%}
+  .deduct-label{color:#374151;width:34%;padding-left:16px}
+  .deduct-val{text-align:right;font-weight:500;color:#b91c1c;width:16%}
+  .pay-table tfoot td{padding:8px 12px;font-size:12px;font-weight:700;border-top:2px solid #cbd5e1;background:#f1f5f9}
+  .pay-table tfoot .total-earn{color:#059669}
+  .pay-table tfoot .total-deduct{color:#b91c1c;padding-left:16px}
+
+  /* ── Net salary bar ── */
+  .net-bar{background:#1D6BE4;color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+  .net-bar .net-label{font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+  .net-bar .net-amount{font-size:22px;font-weight:800;letter-spacing:-0.5px}
+
+  /* ── Footer ── */
+  .slip-footer{display:flex;justify-content:space-between;align-items:flex-end;margin-top:28px;padding-top:14px;border-top:1px solid #e2e8f0}
+  .sig-block{text-align:center}
+  .sig-line{width:160px;border-top:1px solid #94a3b8;margin:0 auto 4px}
+  .sig-label{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.06em}
+  .disclaimer{font-size:9.5px;color:#94a3b8;text-align:center;margin-top:14px}
+
+  /* ── Print button ── */
+  .no-print{display:flex;gap:10px;justify-content:center;margin-bottom:24px}
+  .btn-print{padding:9px 28px;background:#1D6BE4;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer}
+  .btn-close{padding:9px 20px;background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer}
+</style>
+</head><body>
+
+<div class="no-print">
+  <button class="btn-print" onclick="window.print()">&#x1F4BE; Save as PDF / Print</button>
+  <button class="btn-close" onclick="window.close()">Close</button>
+</div>
+
+<!-- Company header -->
+<div class="co-header">
+  <div>
+    <div class="co-name">One<span>Edge</span></div>
+    <div class="co-tagline">Human Resource Information System</div>
   </div>
-  <button class="print-btn" onclick="window.print()">Download / Print PDF</button>
-  <div class="actions">
-    <button class="print-btn" onclick="window.print()">&#x2193; Save as PDF / Print</button>
-    <button class="close-btn" onclick="window.close()">Close</button>
+  <div class="slip-badge">
+    <div class="title">SALARY SLIP</div>
+    <div class="period">Pay Period: ${periodMonth}</div>
+    <div class="period">Generated: ${generatedOn}</div>
   </div>
-  </body></html>`;
+</div>
+
+<!-- Employee info -->
+<div class="emp-info">
+  <div class="info-cell"><span class="lbl">Employee Name</span><span class="val">${name}</span></div>
+  <div class="info-cell"><span class="lbl">Employee ID</span><span class="val">${salary.emp_code || '—'}</span></div>
+  <div class="info-cell"><span class="lbl">Department</span><span class="val">${salary.department_name || '—'}</span></div>
+  <div class="info-cell"><span class="lbl">Designation</span><span class="val">${salary.position_title || '—'}</span></div>
+  <div class="info-cell"><span class="lbl">Pay Period</span><span class="val">${periodMonth}</span></div>
+  <div class="info-cell"><span class="lbl">Employment Type</span><span class="val">${(salary.employment_type || 'Full Time').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}</span></div>
+</div>
+
+<!-- Earnings vs Deductions table -->
+<table class="pay-table">
+  <thead>
+    <tr>
+      <th colspan="2">Earnings</th>
+      <th class="divider"></th>
+      <th colspan="2" class="right">Deductions</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${tableRows}
+  </tbody>
+  <tfoot>
+    <tr>
+      <td>Total Earnings</td>
+      <td class="total-earn" style="text-align:right">${fmtCurrency(salary.gross_salary)}</td>
+      <td class="divider"></td>
+      <td class="total-deduct">Total Deductions</td>
+      <td class="total-deduct" style="text-align:right">- ${fmtCurrency(totalDeductions)}</td>
+    </tr>
+  </tfoot>
+</table>
+
+<!-- Net salary -->
+<div class="net-bar">
+  <span class="net-label">Net Salary (Take Home)</span>
+  <span class="net-amount">${fmtCurrency(salary.net_salary)}</span>
+</div>
+
+<!-- Signatures -->
+<div class="slip-footer">
+  <div class="sig-block">
+    <div class="sig-line"></div>
+    <div class="sig-label">Employee Signature</div>
+  </div>
+  <div style="text-align:center;font-size:10px;color:#94a3b8">
+    This is a system-generated salary slip and does not require a physical signature.
+  </div>
+  <div class="sig-block">
+    <div class="sig-line"></div>
+    <div class="sig-label">Authorized Signatory</div>
+  </div>
+</div>
+
+<div class="disclaimer">
+  This document is confidential and intended solely for the named employee. Unauthorized disclosure is prohibited.
+</div>
+
+</body></html>`;
 
   // Blob URL approach — works from synchronous button click, no popup blocker issues
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
