@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Eye, EyeOff, Building2, Lock, Mail, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, AlertCircle } from 'lucide-react';
+import EdgeLogo from '../components/EdgeLogo';
 
 export default function Login() {
   const [form, setForm] = useState({ email: 'admin@company.com', password: 'password' });
@@ -37,10 +38,9 @@ export default function Login() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 gradient-bg rounded-2xl mb-4 shadow-lg">
-            <Building2 size={28} className="text-white" />
+          <div className="flex justify-center mb-3">
+            <EdgeLogo height={44} showText={true} />
           </div>
-          <h1 className="text-2xl font-bold text-oe-text">OnEdge HRIS</h1>
           <p className="text-oe-muted text-sm mt-1">Human Resource Information System</p>
         </div>
 

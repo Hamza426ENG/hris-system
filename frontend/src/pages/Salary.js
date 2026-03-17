@@ -4,6 +4,7 @@ import Modal from '../components/Modal';
 import { Plus, Search, Download } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { edgeLogoSvg } from '../components/EdgeLogo';
 
 const fmtCurrency = (n) => n ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n) : '-';
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '-';
@@ -62,9 +63,7 @@ const downloadSalarySlip = (salary, employeeName) => {
   @media print{body{padding:0}@page{size:A4;margin:15mm 15mm 20mm 15mm}.no-print{display:none!important}}
 
   /* ── Company header ── */
-  .co-header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1D6BE4;padding-bottom:14px;margin-bottom:16px}
-  .co-name{font-size:22px;font-weight:800;letter-spacing:-0.5px;color:#1D6BE4}
-  .co-name span{color:#7C3AED}
+  .co-header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #7C3AED;padding-bottom:14px;margin-bottom:16px}
   .co-tagline{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
   .slip-badge{text-align:right}
   .slip-badge .title{font-size:15px;font-weight:700;color:#1e293b;letter-spacing:.02em}
@@ -80,7 +79,7 @@ const downloadSalarySlip = (salary, employeeName) => {
 
   /* ── Earnings / Deductions two-column table ── */
   .pay-table{width:100%;border-collapse:collapse;border:1px solid #cbd5e1;margin-bottom:16px}
-  .pay-table thead tr{background:#1D6BE4;color:#fff}
+  .pay-table thead tr{background:#7C3AED;color:#fff}
   .pay-table thead th{padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em}
   .pay-table thead th.right{text-align:right}
   .pay-table .divider{width:1px;background:#cbd5e1;padding:0}
@@ -95,7 +94,7 @@ const downloadSalarySlip = (salary, employeeName) => {
   .pay-table tfoot .total-deduct{color:#b91c1c;padding-left:16px}
 
   /* ── Net salary bar ── */
-  .net-bar{background:#1D6BE4;color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+  .net-bar{background:#7C3AED;color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
   .net-bar .net-label{font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
   .net-bar .net-amount{font-size:22px;font-weight:800;letter-spacing:-0.5px}
 
@@ -121,7 +120,7 @@ const downloadSalarySlip = (salary, employeeName) => {
 <!-- Company header -->
 <div class="co-header">
   <div>
-    <div class="co-name">One<span>Edge</span></div>
+    ${edgeLogoSvg}
     <div class="co-tagline">Human Resource Information System</div>
   </div>
   <div class="slip-badge">
