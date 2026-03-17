@@ -22,12 +22,12 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
 
   const title = Object.entries(PAGE_TITLES)
     .sort((a, b) => b[0].length - a[0].length)
-    .find(([path]) => location.pathname.startsWith(path))?.[1] || 'HRIS';
+    .find(([path]) => location.pathname === path || (path !== '/' && location.pathname.startsWith(path)))?.[1] || 'HRIS';
 
   const initials = user ? `${user.firstName?.[0] || ''}${user.lastName?.[0] || ''}`.toUpperCase() : 'U';
 
   return (
-    <header className="h-16 bg-oe-surface border-b border-oe-border flex items-center justify-between px-6 flex-shrink-0">
+    <header className="h-16 bg-white border-b border-oe-border flex items-center justify-between px-6 flex-shrink-0 shadow-sm">
       <div className="flex items-center gap-4">
         <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-oe-muted hover:text-oe-text transition-colors">
           <Menu size={20} />
@@ -36,7 +36,7 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
       </div>
 
       <div className="flex items-center gap-3">
-        <button className="w-9 h-9 flex items-center justify-center rounded-lg text-oe-muted hover:text-oe-text hover:bg-oe-border transition-colors relative">
+        <button className="w-9 h-9 flex items-center justify-center rounded-lg text-oe-muted hover:text-oe-text hover:bg-slate-100 transition-colors relative">
           <Bell size={18} />
           <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-oe-danger rounded-full"></span>
         </button>
@@ -44,7 +44,7 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
         <div className="relative">
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-oe-border transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors"
           >
             <div className="w-7 h-7 gradient-bg rounded-full flex items-center justify-center text-xs font-semibold text-white">
               {initials}
@@ -57,22 +57,22 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
           </button>
 
           {menuOpen && (
-            <div className="absolute right-0 mt-1 w-48 bg-oe-card border border-oe-border rounded-xl shadow-xl z-50 overflow-hidden">
-              <div className="p-3 border-b border-oe-border">
+            <div className="absolute right-0 mt-1 w-48 bg-white border border-oe-border rounded-xl shadow-lg z-50 overflow-hidden">
+              <div className="p-3 border-b border-oe-border bg-slate-50">
                 <div className="text-sm font-medium text-oe-text">{user?.firstName} {user?.lastName}</div>
                 <div className="text-xs text-oe-muted">{user?.email}</div>
               </div>
               {user?.employeeId && (
                 <button
                   onClick={() => { navigate(`/employees/${user.employeeId}`); setMenuOpen(false); }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-oe-muted hover:text-oe-text hover:bg-oe-surface transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-oe-muted hover:text-oe-text hover:bg-slate-50 transition-colors"
                 >
                   <User size={14} /> My Profile
                 </button>
               )}
               <button
                 onClick={() => { logout(); navigate('/login'); setMenuOpen(false); }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-oe-danger hover:bg-oe-surface transition-colors"
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-oe-danger hover:bg-red-50 transition-colors"
               >
                 <LogOut size={14} /> Sign Out
               </button>

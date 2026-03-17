@@ -14,14 +14,14 @@ export default function Modal({ open, onClose, title, children, size = 'md' }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
       <div
-        className={`relative w-full ${sizes[size]} bg-oe-card border border-oe-border rounded-2xl shadow-2xl overflow-hidden`}
+        className={`relative w-full ${sizes[size]} bg-white border border-oe-border rounded-2xl shadow-2xl overflow-hidden`}
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-oe-border">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-oe-border bg-slate-50">
           <h2 className="text-base font-semibold text-oe-text">{title}</h2>
-          <button onClick={onClose} className="text-oe-muted hover:text-oe-text transition-colors rounded-lg p-1 hover:bg-oe-surface">
+          <button onClick={onClose} className="text-oe-muted hover:text-oe-text transition-colors rounded-lg p-1 hover:bg-slate-200">
             <X size={18} />
           </button>
         </div>
