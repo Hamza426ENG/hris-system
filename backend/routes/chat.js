@@ -14,7 +14,11 @@ router.use((req, res, next) => {
   next();
 });
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+let openai;
+function getOpenAI() {
+  if (!openai) openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return openai;
+}
 
 // ──────────────────────────────────────────────
 // Tool definitions (OpenAI function calling)
@@ -296,7 +300,7 @@ Guidelines:
 
   try {
     const chatMessages = [{ role: 'system', content: systemPrompt }, ...messages];
-    let response = await openai.chat.completions.create({
+    let response = await getOpenAI().chat.completions.create({
       model: 'gpt-4o',
       messages: chatMessages,
       tools,
@@ -323,7 +327,7 @@ Guidelines:
 
       chatMessages.push(...toolResults);
 
-      response = await openai.chat.completions.create({
+      response = await getOpenAI().chat.completions.create({
         model: 'gpt-4o',
         messages: chatMessages,
         tools,
