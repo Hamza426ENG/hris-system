@@ -107,8 +107,7 @@ export default function HRChatbot() {
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Only visible to hr_admin and super_admin
-  if (!['super_admin', 'hr_admin'].includes(user?.role)) return null;
+  const isAllowed = ['super_admin', 'hr_admin'].includes(user?.role);
 
   const scrollToBottom = () => bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
 
@@ -119,6 +118,9 @@ export default function HRChatbot() {
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [open]);
+
+  // Only visible to hr_admin and super_admin
+  if (!isAllowed) return null;
 
   const send = async (text) => {
     const q = (text || input).trim();
