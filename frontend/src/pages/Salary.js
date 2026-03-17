@@ -58,8 +58,10 @@ const downloadSalarySlip = (salary, employeeName) => {
     .footer{padding:16px 36px;border-top:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;background:#f8fafc}
     .footer-note{font-size:11px;color:#94a3b8}
     .footer-brand{font-size:11px;font-weight:700;color:#1D6BE4}
-    .print-btn{display:block;margin:24px auto 0;padding:10px 32px;background:linear-gradient(135deg,#1D6BE4,#7C3AED);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;letter-spacing:.02em}
-    @media print{.print-btn{display:none}}
+    .actions{display:flex;gap:12px;justify-content:center;margin-top:24px}
+    .print-btn{padding:10px 32px;background:linear-gradient(135deg,#1D6BE4,#7C3AED);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;letter-spacing:.02em}
+    .close-btn{padding:10px 20px;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
+    @media print{.actions{display:none}}
   </style></head><body>
   <div class="slip">
     <div class="header">
@@ -97,25 +99,27 @@ const downloadSalarySlip = (salary, employeeName) => {
     </div>
   </div>
   <button class="print-btn" onclick="window.print()">Download / Print PDF</button>
+  <div class="actions">
+    <button class="print-btn" onclick="window.print()">&#x2193; Save as PDF / Print</button>
+    <button class="close-btn" onclick="window.close()">Close</button>
+  </div>
   </body></html>`;
 
-  // Use a hidden iframe instead of window.open() to avoid popup blockers
-  let iframe = document.getElementById('_salary_print_frame');
-  if (!iframe) {
-    iframe = document.createElement('iframe');
-    iframe.id = '_salary_print_frame';
-    iframe.style.cssText = 'position:fixed;right:-9999px;bottom:0;width:1px;height:1px;border:0;opacity:0;';
-    document.body.appendChild(iframe);
+  // Blob URL approach — works from synchronous button click, no popup blocker issues
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const newWin = window.open(url, '_blank');
+  // Revoke after enough time for the window to load
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+  // If popup was blocked, fall back to direct file download
+  if (!newWin) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `salary-slip-${(employeeName || salary.employee_name || 'employee').replace(/\s+/g, '-')}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
-  const doc = iframe.contentDocument || iframe.contentWindow.document;
-  doc.open();
-  doc.write(html);
-  doc.close();
-  // Wait for content to render then print
-  setTimeout(() => {
-    iframe.contentWindow.focus();
-    iframe.contentWindow.print();
-  }, 400);
 };
 
 export default function Salary() {
