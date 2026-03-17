@@ -335,12 +335,4 @@ export default function EmployeeProfile() {
     </div>
   );
 
-  function SField({ name, label }) {
-    return (
-      <div>
-        <label className="label">{label}</label>
-        <input type="number" step="0.01" className="input" value={salaryForm[name] || ''} onChange={e => setSalaryForm({ ...salaryForm, [name]: e.target.value })} placeholder="0.00" />
-      </div>
-    );
-  }
 }
