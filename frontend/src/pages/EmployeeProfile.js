@@ -92,7 +92,7 @@ export default function EmployeeProfile() {
 
       {/* Header Card */}
       <div className="card">
-        <div className="flex flex-wrap items-start gap-5">
+        <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-5">
           <div className="relative flex-shrink-0 group cursor-pointer" onClick={() => avatarInputRef.current?.click()}>
             <div className="w-16 h-16 rounded-2xl overflow-hidden ring-2 ring-oe-border">
               <Avatar src={emp.avatar_url} firstName={emp.first_name} lastName={emp.last_name} size={64} className="w-full h-full" />
@@ -104,7 +104,7 @@ export default function EmployeeProfile() {
             </div>
             <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
           </div>
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 w-full">
             <div className="flex flex-wrap items-center gap-3 mb-1">
               <h2 className="text-xl font-bold text-oe-text">{emp.first_name} {emp.last_name}</h2>
               <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -112,16 +112,16 @@ export default function EmployeeProfile() {
               }`}>{emp.status}</span>
             </div>
             <div className="text-oe-muted text-sm mb-3">{emp.position_title} {emp.department_name ? `· ${emp.department_name}` : ''}</div>
-            <div className="flex flex-wrap gap-4 text-sm text-oe-muted">
+            <div className="flex flex-wrap gap-3 text-sm text-oe-muted">
               <span className="flex items-center gap-1"><Briefcase size={13} /> {emp.employee_id}</span>
-              {emp.work_email && <span className="flex items-center gap-1"><Mail size={13} /> {emp.work_email}</span>}
+              {emp.work_email && <span className="flex items-center gap-1 min-w-0"><Mail size={13} className="flex-shrink-0" /> <span className="truncate">{emp.work_email}</span></span>}
               {emp.phone_primary && <span className="flex items-center gap-1"><Phone size={13} /> {emp.phone_primary}</span>}
               {emp.city && <span className="flex items-center gap-1"><MapPin size={13} /> {emp.city}, {emp.country}</span>}
               <span className="flex items-center gap-1"><Calendar size={13} /> Joined {fmtDate(emp.hire_date)}</span>
             </div>
           </div>
           {currentSalary && (
-            <div className="text-right">
+            <div className="text-left sm:text-right mt-2 sm:mt-0 flex-shrink-0">
               <div className="text-xs text-oe-muted mb-0.5">Current Salary</div>
               <div className="text-xl font-bold text-oe-text">{fmtCurrency(currentSalary.gross_salary)}</div>
               <div className="text-xs text-oe-muted">gross/month</div>
@@ -143,13 +143,19 @@ export default function EmployeeProfile() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="flex gap-1 bg-oe-surface rounded-xl p-1 w-fit">
-        {TABS.map((t, i) => (
-          <button key={t} onClick={() => setTab(i)} className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === i ? 'bg-oe-card text-oe-text shadow' : 'text-oe-muted hover:text-oe-text'}`}>
-            {t}
-          </button>
-        ))}
+      {/* Tabs — scrollable on mobile */}
+      <div className="overflow-x-auto -mx-3 sm:mx-0 px-3 sm:px-0">
+        <div className="flex gap-1 bg-oe-surface rounded-xl p-1 w-max sm:w-fit">
+          {TABS.map((t, i) => (
+            <button
+              key={t}
+              onClick={() => setTab(i)}
+              className={`px-3 sm:px-4 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${tab === i ? 'bg-oe-card text-oe-text shadow' : 'text-oe-muted hover:text-oe-text'}`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Tab: Overview */}
@@ -200,8 +206,8 @@ export default function EmployeeProfile() {
               ['Address', [emp.address_line1, emp.city, emp.state, emp.country].filter(Boolean).join(', ') || '-'],
             ].map(([k, v]) => (
               <div key={k} className="flex justify-between text-sm border-b border-oe-border/50 pb-2 last:border-0 last:pb-0">
-                <span className="text-oe-muted">{k}</span>
-                <span className="text-oe-text">{v}</span>
+                <span className="text-oe-muted flex-shrink-0">{k}</span>
+                <span className="text-oe-text text-right ml-3 break-all">{v}</span>
               </div>
             ))}
           </div>
@@ -228,28 +234,49 @@ export default function EmployeeProfile() {
           <div className="px-5 py-3 border-b border-oe-border flex items-center justify-between">
             <span className="font-semibold text-oe-text text-sm">Leave History</span>
           </div>
-          <table className="w-full">
-            <thead className="bg-oe-surface/50">
-              <tr>
-                {['Type', 'Start', 'End', 'Days', 'Reason', 'Status', 'Reviewed By'].map(h => <th key={h} className="table-header">{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {leaves.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-8 text-oe-muted text-sm">No leave history</td></tr>
-              ) : leaves.map(l => (
-                <tr key={l.id} className="table-row">
-                  <td className="table-cell"><div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full" style={{ background: l.color }} />{l.leave_type_name}</div></td>
-                  <td className="table-cell text-xs">{fmtDate(l.start_date)}</td>
-                  <td className="table-cell text-xs">{fmtDate(l.end_date)}</td>
-                  <td className="table-cell">{l.total_days}</td>
-                  <td className="table-cell text-oe-muted text-xs max-w-32 truncate">{l.reason}</td>
-                  <td className="table-cell">{statusBadge(l.status)}</td>
-                  <td className="table-cell text-xs text-oe-muted">{l.reviewer_name || '-'}</td>
+          {/* Desktop */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-oe-surface/50">
+                <tr>
+                  {['Type', 'Start', 'End', 'Days', 'Reason', 'Status', 'Reviewed By'].map(h => <th key={h} className="table-header">{h}</th>)}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {leaves.length === 0 ? (
+                  <tr><td colSpan={7} className="text-center py-8 text-oe-muted text-sm">No leave history</td></tr>
+                ) : leaves.map(l => (
+                  <tr key={l.id} className="table-row">
+                    <td className="table-cell"><div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full" style={{ background: l.color }} />{l.leave_type_name}</div></td>
+                    <td className="table-cell text-xs">{fmtDate(l.start_date)}</td>
+                    <td className="table-cell text-xs">{fmtDate(l.end_date)}</td>
+                    <td className="table-cell">{l.total_days}</td>
+                    <td className="table-cell text-oe-muted text-xs max-w-32 truncate">{l.reason}</td>
+                    <td className="table-cell">{statusBadge(l.status)}</td>
+                    <td className="table-cell text-xs text-oe-muted">{l.reviewer_name || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {/* Mobile */}
+          <div className="md:hidden divide-y divide-oe-border">
+            {leaves.length === 0 ? (
+              <div className="text-center py-8 text-oe-muted text-sm">No leave history</div>
+            ) : leaves.map(l => (
+              <div key={l.id} className="p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: l.color }} />
+                    <span className="text-sm font-medium text-oe-text">{l.leave_type_name}</span>
+                  </div>
+                  {statusBadge(l.status)}
+                </div>
+                <div className="text-xs text-oe-muted">{fmtDate(l.start_date)} – {fmtDate(l.end_date)} · {l.total_days} days</div>
+                {l.reason && <div className="text-xs text-oe-muted line-clamp-2">{l.reason}</div>}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -299,38 +326,68 @@ export default function EmployeeProfile() {
           <div className="px-5 py-3 border-b border-oe-border">
             <span className="font-semibold text-oe-text text-sm">Payroll History</span>
           </div>
-          <table className="w-full">
-            <thead className="bg-oe-surface/50">
-              <tr>
-                {['Period', 'Gross', 'Deductions', 'Net', 'Leave Days', 'Status'].map(h => <th key={h} className="table-header">{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {payroll.length === 0 ? (
-                <tr><td colSpan={6} className="text-center py-8 text-oe-muted text-sm">No payroll history</td></tr>
-              ) : payroll.map(p => (
-                <tr key={p.id} className="table-row">
-                  <td className="table-cell text-xs">{fmtDate(p.period_start)} – {fmtDate(p.period_end)}</td>
-                  <td className="table-cell text-oe-success">{fmtCurrency(p.gross_salary)}</td>
-                  <td className="table-cell text-oe-danger">-{fmtCurrency(p.total_deductions)}</td>
-                  <td className="table-cell text-oe-primary font-medium">{fmtCurrency(p.net_salary)}</td>
-                  <td className="table-cell">{p.leave_days_taken}</td>
-                  <td className="table-cell"><span className={p.run_status === 'completed' ? 'badge-approved' : 'badge-pending'}>{p.run_status}</span></td>
+          {/* Desktop */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-oe-surface/50">
+                <tr>
+                  {['Period', 'Gross', 'Deductions', 'Net', 'Leave Days', 'Status'].map(h => <th key={h} className="table-header">{h}</th>)}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {payroll.length === 0 ? (
+                  <tr><td colSpan={6} className="text-center py-8 text-oe-muted text-sm">No payroll history</td></tr>
+                ) : payroll.map(p => (
+                  <tr key={p.id} className="table-row">
+                    <td className="table-cell text-xs">{fmtDate(p.period_start)} – {fmtDate(p.period_end)}</td>
+                    <td className="table-cell text-oe-success">{fmtCurrency(p.gross_salary)}</td>
+                    <td className="table-cell text-oe-danger">-{fmtCurrency(p.total_deductions)}</td>
+                    <td className="table-cell text-oe-primary font-medium">{fmtCurrency(p.net_salary)}</td>
+                    <td className="table-cell">{p.leave_days_taken}</td>
+                    <td className="table-cell"><span className={p.run_status === 'completed' ? 'badge-approved' : 'badge-pending'}>{p.run_status}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {/* Mobile */}
+          <div className="md:hidden divide-y divide-oe-border">
+            {payroll.length === 0 ? (
+              <div className="text-center py-8 text-oe-muted text-sm">No payroll history</div>
+            ) : payroll.map(p => (
+              <div key={p.id} className="p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-oe-muted">{fmtDate(p.period_start)} – {fmtDate(p.period_end)}</div>
+                  <span className={p.run_status === 'completed' ? 'badge-approved' : 'badge-pending'}>{p.run_status}</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <div className="text-xs text-oe-muted">Gross</div>
+                    <div className="text-sm font-semibold text-oe-success">{fmtCurrency(p.gross_salary)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-oe-muted">Deductions</div>
+                    <div className="text-sm font-semibold text-oe-danger">-{fmtCurrency(p.total_deductions)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-oe-muted">Net</div>
+                    <div className="text-sm font-semibold text-oe-primary">{fmtCurrency(p.net_salary)}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
       {/* Salary Modal */}
       <Modal open={salaryModal} onClose={() => setSalaryModal(false)} title="Add Salary Structure" size="md">
-        <div className="p-6 space-y-4">
+        <div className="p-4 sm:p-6 space-y-4">
           <div>
             <label className="label">Effective Date</label>
             <input type="date" className="input" value={salaryForm.effective_date} onChange={e => setSalaryForm({ ...salaryForm, effective_date: e.target.value })} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <SField name="basic_salary" label="Basic Salary *" />
             <SField name="housing_allowance" label="Housing Allowance" />
             <SField name="transport_allowance" label="Transport Allowance" />
@@ -341,7 +398,7 @@ export default function EmployeeProfile() {
           </div>
           <div>
             <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider mb-2">Deductions</h4>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <SField name="tax_deduction" label="Tax" />
               <SField name="pension_deduction" label="Pension" />
               <SField name="health_insurance" label="Health Insurance" />
@@ -352,9 +409,9 @@ export default function EmployeeProfile() {
             <label className="label">Notes</label>
             <textarea className="input" rows={2} value={salaryForm.notes} onChange={e => setSalaryForm({ ...salaryForm, notes: e.target.value })} />
           </div>
-          <div className="flex justify-end gap-3">
-            <button onClick={() => setSalaryModal(false)} className="btn-secondary">Cancel</button>
-            <button onClick={handleSalary} disabled={saving} className="btn-primary">
+          <div className="flex flex-col sm:flex-row justify-end gap-3">
+            <button onClick={() => setSalaryModal(false)} className="btn-secondary justify-center">Cancel</button>
+            <button onClick={handleSalary} disabled={saving} className="btn-primary justify-center">
               {saving ? 'Saving...' : 'Save Salary'}
             </button>
           </div>

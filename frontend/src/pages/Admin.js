@@ -81,8 +81,8 @@ export default function Admin() {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="card p-0 overflow-hidden">
+      {/* Desktop table */}
+      <div className="card p-0 overflow-hidden hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-oe-surface/50">
@@ -172,6 +172,83 @@ export default function Admin() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Mobile card list */}
+      <div className="md:hidden space-y-3">
+        {loading ? (
+          <div className="text-center py-12 text-oe-muted">
+            <div className="w-6 h-6 border-2 border-oe-primary border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+            Loading...
+          </div>
+        ) : users.length === 0 ? (
+          <div className="text-center py-12 text-oe-muted">No users found</div>
+        ) : users.map(u => {
+          const isOwnAccount = u.id === user?.id;
+          const isRoleUpdating = updating === u.id + '-role';
+          const isToggleUpdating = updating === u.id + '-toggle';
+
+          return (
+            <div key={u.id} className="bg-white border border-oe-border rounded-xl p-4 space-y-3">
+              <div className="flex items-center gap-3">
+                <Avatar
+                  src={u.avatar_url}
+                  firstName={u.first_name || u.email}
+                  lastName={u.last_name || ''}
+                  size={36}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-oe-text text-sm">
+                    {u.first_name && u.last_name ? `${u.first_name} ${u.last_name}` : '—'}
+                  </div>
+                  <div className="text-xs text-oe-muted truncate">{u.email}</div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className={u.is_active ? 'badge-active' : 'badge-inactive'}>
+                    {u.is_active ? 'Active' : 'Inactive'}
+                  </span>
+                  <button
+                    onClick={() => handleToggle(u.id)}
+                    disabled={isToggleUpdating}
+                    className={`p-1.5 rounded hover:bg-oe-surface transition-colors ${u.is_active ? 'text-oe-success hover:text-oe-danger' : 'text-oe-muted hover:text-oe-success'}`}
+                    title={u.is_active ? 'Deactivate user' : 'Activate user'}
+                  >
+                    {u.is_active ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 text-xs text-oe-muted">
+                {u.department_name && <span className="px-2 py-0.5 bg-slate-100 rounded">{u.department_name}</span>}
+                {u.emp_code && <span className="px-2 py-0.5 bg-slate-100 rounded">{u.emp_code}</span>}
+                <span className="px-2 py-0.5 bg-slate-100 rounded">Last login: {fmtDate(u.last_login)}</span>
+              </div>
+
+              <div>
+                <label className="label">Role</label>
+                {isOwnAccount ? (
+                  <div className="space-y-1">
+                    <span className="badge-pending text-xs">
+                      {ROLE_OPTIONS.find(r => r.value === u.role)?.label || u.role}
+                    </span>
+                    <div className="text-xs text-oe-muted">Cannot change own role</div>
+                  </div>
+                ) : (
+                  <select
+                    className="input text-sm"
+                    value={u.role}
+                    disabled={isRoleUpdating}
+                    onChange={e => handleRoleChange(u.id, e.target.value)}
+                  >
+                    {ROLE_OPTIONS.map(r => (
+                      <option key={r.value} value={r.value}>{r.label}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

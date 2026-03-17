@@ -82,14 +82,14 @@ export default function Payroll() {
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center gap-3">
-        <div className="flex-1" />
-        <button onClick={quickCreate} className="btn-secondary"><Wallet size={15} /> Quick Create (This Month)</button>
-        <button onClick={() => setModal(true)} className="btn-primary"><Plus size={15} /> New Payroll Run</button>
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        <div className="flex-1 hidden sm:block" />
+        <button onClick={quickCreate} className="btn-secondary justify-center sm:justify-start"><Wallet size={15} /> Quick Create (This Month)</button>
+        <button onClick={() => setModal(true)} className="btn-primary justify-center sm:justify-start"><Plus size={15} /> New Payroll Run</button>
       </div>
 
-      {/* Table */}
-      <div className="card p-0 overflow-hidden">
+      {/* Desktop table */}
+      <div className="card p-0 overflow-hidden hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-oe-surface/50">
@@ -142,14 +142,75 @@ export default function Payroll() {
         </div>
       </div>
 
+      {/* Mobile card list */}
+      <div className="md:hidden space-y-3">
+        {loading ? (
+          <div className="text-center py-12 text-oe-muted">
+            <div className="w-6 h-6 border-2 border-oe-primary border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+            Loading...
+          </div>
+        ) : runs.length === 0 ? (
+          <div className="text-center py-12 text-oe-muted">No payroll runs. Create your first payroll run.</div>
+        ) : runs.map(r => (
+          <div
+            key={r.id}
+            className="bg-white border border-oe-border rounded-xl p-4 cursor-pointer hover:border-oe-primary/30 transition-colors"
+            onClick={() => navigate(`/payroll/${r.id}`)}
+          >
+            <div className="flex items-start justify-between mb-3 gap-2">
+              <div className="font-medium text-oe-text text-sm">{r.description || `${MONTHS[(r.month || 1) - 1]} ${r.year}`}</div>
+              {statusBadge(r.status)}
+            </div>
+            <div className="text-xs text-oe-muted mb-3">
+              {fmtDate(r.period_start)} – {fmtDate(r.period_end)} · Pay: {fmtDate(r.pay_date)}
+              {r.total_employees ? ` · ${r.total_employees} employees` : ''}
+            </div>
+            {(r.total_gross || r.total_net) && (
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="bg-slate-50 rounded-lg p-2">
+                  <div className="text-xs text-oe-muted mb-0.5">Gross</div>
+                  <div className="text-sm font-semibold text-oe-success">{r.total_gross ? fmtCurrency(r.total_gross) : '-'}</div>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-2">
+                  <div className="text-xs text-oe-muted mb-0.5">Deductions</div>
+                  <div className="text-sm font-semibold text-oe-danger">{r.total_deductions ? `-${fmtCurrency(r.total_deductions)}` : '-'}</div>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-2">
+                  <div className="text-xs text-oe-muted mb-0.5">Net</div>
+                  <div className="text-sm font-semibold text-oe-primary">{r.total_net ? fmtCurrency(r.total_net) : '-'}</div>
+                </div>
+              </div>
+            )}
+            {(r.status === 'processing' || r.status === 'draft') && (
+              <div className="flex gap-2 mt-3">
+                {r.status === 'processing' && (
+                  <button
+                    onClick={(e) => handleComplete(r.id, e)}
+                    className="btn-success py-1.5 px-3 text-xs flex-1 justify-center"
+                  >
+                    <CheckCircle size={13} /> Complete
+                  </button>
+                )}
+                <button
+                  onClick={(e) => handleCancel(r.id, e)}
+                  className="btn-danger py-1.5 px-3 text-xs flex-1 justify-center"
+                >
+                  <XCircle size={13} /> Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
       {/* Create Modal */}
       <Modal open={modal} onClose={() => setModal(false)} title="Create Payroll Run" size="sm">
-        <div className="p-6 space-y-4">
+        <div className="p-4 sm:p-6 space-y-4">
           <div>
             <label className="label">Description</label>
             <input className="input" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="e.g. July 2025 Payroll" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">Period Start *</label>
               <input type="date" className="input" value={form.period_start} onChange={e => setForm({ ...form, period_start: e.target.value })} />
@@ -163,9 +224,9 @@ export default function Payroll() {
             <label className="label">Pay Date *</label>
             <input type="date" className="input" value={form.pay_date} onChange={e => setForm({ ...form, pay_date: e.target.value })} />
           </div>
-          <div className="flex justify-end gap-3">
-            <button onClick={() => setModal(false)} className="btn-secondary">Cancel</button>
-            <button onClick={handleCreate} disabled={saving} className="btn-primary">
+          <div className="flex flex-col sm:flex-row justify-end gap-3">
+            <button onClick={() => setModal(false)} className="btn-secondary justify-center">Cancel</button>
+            <button onClick={handleCreate} disabled={saving} className="btn-primary justify-center">
               {saving ? 'Creating...' : 'Create Run'}
             </button>
           </div>

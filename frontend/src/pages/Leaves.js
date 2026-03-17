@@ -103,16 +103,18 @@ export default function Leaves() {
       </div>
 
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3">
-        <select className="input w-36" value={filters.status} onChange={e => setFilters({ ...filters, status: e.target.value })}>
-          <option value="">All Status</option>
-          {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <select className="input w-28" value={filters.year} onChange={e => setFilters({ ...filters, year: e.target.value })}>
-          {[2025, 2024, 2023].map(y => <option key={y} value={y}>{y}</option>)}
-        </select>
-        <button onClick={exportCSV} className="btn-secondary"><Download size={15} /> Export</button>
-        <button onClick={() => setModal('request')} className="btn-primary ml-auto"><Plus size={15} /> Request Leave</button>
+      <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3">
+        <div className="flex gap-2 flex-wrap">
+          <select className="input w-full sm:w-36" value={filters.status} onChange={e => setFilters({ ...filters, status: e.target.value })}>
+            <option value="">All Status</option>
+            {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select className="input w-full sm:w-28" value={filters.year} onChange={e => setFilters({ ...filters, year: e.target.value })}>
+            {[2025, 2024, 2023].map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <button onClick={exportCSV} className="btn-secondary flex-1 sm:flex-none justify-center"><Download size={15} /> Export</button>
+        </div>
+        <button onClick={() => setModal('request')} className="btn-primary sm:ml-auto justify-center"><Plus size={15} /> Request Leave</button>
       </div>
 
       {/* Pending section for approvers */}
@@ -124,9 +126,9 @@ export default function Leaves() {
           </div>
           <div className="space-y-2">
             {pending.slice(0, 5).map(l => (
-              <div key={l.id} className="flex items-center justify-between py-2 border-b border-oe-border/30 last:border-0">
+              <div key={l.id} className="flex flex-col sm:flex-row sm:items-center justify-between py-2 border-b border-oe-border/30 last:border-0 gap-2">
                 <div className="flex items-center gap-3">
-                  <div className="w-7 h-7 gradient-bg rounded-full flex items-center justify-center text-xs font-bold text-white">
+                  <div className="w-7 h-7 gradient-bg rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
                     {l.employee_name?.split(' ').map(n => n[0]).join('').slice(0, 2)}
                   </div>
                   <div>
@@ -134,7 +136,7 @@ export default function Leaves() {
                     <span className="text-xs text-oe-muted ml-2">{l.leave_type_name} · {l.total_days}d · {fmtDate(l.start_date)}</span>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 pl-10 sm:pl-0">
                   <button onClick={() => { setSelected(l); setModal('review'); }} className="btn-success py-1 px-2.5 text-xs"><Check size={12} /> Review</button>
                 </div>
               </div>
@@ -143,8 +145,8 @@ export default function Leaves() {
         </div>
       )}
 
-      {/* Table */}
-      <div className="card p-0 overflow-hidden">
+      {/* Desktop table */}
+      <div className="card p-0 overflow-hidden hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-oe-surface/50">
@@ -206,9 +208,60 @@ export default function Leaves() {
         </div>
       </div>
 
+      {/* Mobile card list */}
+      <div className="md:hidden space-y-3">
+        {loading ? (
+          <div className="text-center py-12 text-oe-muted">
+            <div className="w-6 h-6 border-2 border-oe-primary border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+            Loading...
+          </div>
+        ) : leaves.length === 0 ? (
+          <div className="text-center py-12 text-oe-muted">No leave requests found</div>
+        ) : leaves.map(l => (
+          <div key={l.id} className="bg-white border border-oe-border rounded-xl p-4 space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-8 h-8 gradient-bg rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+                  {l.employee_name?.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-oe-text truncate">{l.employee_name}</div>
+                  <div className="text-xs text-oe-muted truncate">{l.department_name}</div>
+                </div>
+              </div>
+              {statusBadge(l.status)}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: l.color }} />
+              <span className="text-sm font-medium text-oe-text">{l.leave_type_name}</span>
+              <span className="text-xs text-oe-muted ml-auto">{l.total_days} day{l.total_days !== 1 ? 's' : ''}</span>
+            </div>
+            <div className="text-xs text-oe-muted">
+              {fmtDate(l.start_date)} – {fmtDate(l.end_date)}
+            </div>
+            {l.reason && (
+              <div className="text-xs text-oe-muted line-clamp-2">{l.reason}</div>
+            )}
+            {(canApprove && l.status === 'pending') || l.status === 'pending' ? (
+              <div className="flex gap-2 pt-1">
+                {canApprove && l.status === 'pending' && (
+                  <>
+                    <button onClick={() => { setSelected(l); setModal('review'); }} className="btn-success py-1.5 px-3 text-xs flex-1 justify-center"><Check size={12} /> Approve</button>
+                    <button onClick={() => { setSelected(l); setModal('reject'); }} className="btn-danger py-1.5 px-3 text-xs flex-1 justify-center"><X size={12} /> Reject</button>
+                  </>
+                )}
+                {l.status === 'pending' && !canApprove && (
+                  <button onClick={() => handleCancel(l.id)} className="btn-secondary py-1.5 px-3 text-xs justify-center w-full">Cancel Request</button>
+                )}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+
       {/* Request Modal */}
       <Modal open={modal === 'request'} onClose={() => setModal(null)} title="Request Leave" size="md">
-        <div className="p-6 space-y-4">
+        <div className="p-4 sm:p-6 space-y-4">
           {isHR && (
             <div>
               <label className="label">Employee *</label>
@@ -234,7 +287,7 @@ export default function Leaves() {
               {types.map(t => <option key={t.id} value={t.id}>{t.name} ({t.days_allowed}d allowed)</option>)}
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">Start Date *</label>
               <input type="date" className="input" value={form.start_date} onChange={e => setForm({ ...form, start_date: e.target.value })} />
@@ -252,9 +305,9 @@ export default function Leaves() {
             <label className="label">Reason *</label>
             <textarea className="input" rows={3} value={form.reason} onChange={e => setForm({ ...form, reason: e.target.value })} placeholder="Provide a reason for your leave request..." />
           </div>
-          <div className="flex justify-end gap-3">
-            <button onClick={() => setModal(null)} className="btn-secondary">Cancel</button>
-            <button onClick={handleSubmit} disabled={saving} className="btn-primary">
+          <div className="flex flex-col sm:flex-row justify-end gap-3">
+            <button onClick={() => setModal(null)} className="btn-secondary justify-center">Cancel</button>
+            <button onClick={handleSubmit} disabled={saving} className="btn-primary justify-center">
               {saving ? 'Submitting...' : 'Submit Request'}
             </button>
           </div>
@@ -264,11 +317,11 @@ export default function Leaves() {
       {/* Review Modal */}
       <Modal open={modal === 'review'} onClose={() => { setModal(null); setSelected(null); setReviewComment(''); }} title="Review Leave Request" size="md">
         {selected && (
-          <div className="p-6 space-y-4">
+          <div className="p-4 sm:p-6 space-y-4">
             <div className="bg-oe-surface rounded-xl p-4 space-y-2">
               <div className="flex justify-between text-sm"><span className="text-oe-muted">Employee</span><span className="text-oe-text font-medium">{selected.employee_name}</span></div>
               <div className="flex justify-between text-sm"><span className="text-oe-muted">Leave Type</span><span className="text-oe-text">{selected.leave_type_name}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-oe-muted">Duration</span><span className="text-oe-text">{fmtDate(selected.start_date)} – {fmtDate(selected.end_date)} ({selected.total_days} days)</span></div>
+              <div className="flex flex-col sm:flex-row sm:justify-between text-sm gap-1"><span className="text-oe-muted">Duration</span><span className="text-oe-text">{fmtDate(selected.start_date)} – {fmtDate(selected.end_date)} ({selected.total_days} days)</span></div>
               <div className="flex justify-between text-sm"><span className="text-oe-muted">Reason</span><span className="text-oe-text max-w-48 text-right">{selected.reason}</span></div>
             </div>
             <div>

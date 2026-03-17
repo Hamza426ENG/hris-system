@@ -79,12 +79,15 @@ export default function Settings() {
 
   return (
     <div className="space-y-5">
-      <div className="flex gap-1 bg-oe-surface rounded-xl p-1 w-fit">
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === t.id ? 'bg-oe-card text-oe-text shadow' : 'text-oe-muted hover:text-oe-text'}`}>
-            <t.icon size={14} />{t.label}
-          </button>
-        ))}
+      {/* Tabs — scrollable on mobile */}
+      <div className="overflow-x-auto -mx-3 sm:mx-0 px-3 sm:px-0">
+        <div className="flex gap-1 bg-oe-surface rounded-xl p-1 w-max sm:w-fit">
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${tab === t.id ? 'bg-oe-card text-oe-text shadow' : 'text-oe-muted hover:text-oe-text'}`}>
+              <t.icon size={14} />{t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Departments */}
@@ -97,13 +100,13 @@ export default function Settings() {
             {departments.map(d => (
               <div key={d.id} className="card hover:border-oe-primary/30 transition-colors">
                 <div className="flex items-start justify-between mb-3">
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <div className="font-semibold text-oe-text">{d.name}</div>
                     <div className="text-xs text-oe-muted">{d.code} · {d.location || 'No location'}</div>
                   </div>
-                  <div className="flex gap-1">
-                    <button onClick={() => openEdit(d)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors"><Edit size={13} /></button>
-                    <button onClick={() => handleDelete('departments', d.id)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors"><Trash2 size={13} /></button>
+                  <div className="flex gap-1 flex-shrink-0 ml-2">
+                    <button onClick={() => openEdit(d)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"><Edit size={13} /></button>
+                    <button onClick={() => handleDelete('departments', d.id)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"><Trash2 size={13} /></button>
                   </div>
                 </div>
                 <div className="text-xs text-oe-muted">{d.description || 'No description'}</div>
@@ -123,7 +126,8 @@ export default function Settings() {
           <div className="flex justify-end">
             <button onClick={openAdd} className="btn-primary"><Plus size={15} /> Add Position</button>
           </div>
-          <div className="card p-0 overflow-hidden">
+          {/* Desktop table */}
+          <div className="card p-0 overflow-hidden hidden md:block">
             <table className="w-full">
               <thead className="bg-oe-surface/50">
                 <tr>{['Title', 'Code', 'Department', 'Level', 'Grade', 'Salary Range', 'Headcount', 'Actions'].map(h => <th key={h} className="table-header">{h}</th>)}</tr>
@@ -151,6 +155,31 @@ export default function Settings() {
               </tbody>
             </table>
           </div>
+          {/* Mobile card list */}
+          <div className="md:hidden space-y-3">
+            {positions.map(p => (
+              <div key={p.id} className="bg-white border border-oe-border rounded-xl p-4">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-oe-text text-sm">{p.title}</div>
+                    <div className="text-xs text-oe-muted">{p.code} · {p.department_name || 'No dept'}</div>
+                  </div>
+                  <div className="flex gap-1 flex-shrink-0 ml-2">
+                    <button onClick={() => openEdit(p)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors"><Edit size={13} /></button>
+                    <button onClick={() => handleDelete('positions', p.id)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors"><Trash2 size={13} /></button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  {p.grade && <span className="px-1.5 py-0.5 bg-oe-surface rounded text-oe-muted">Grade: {p.grade}</span>}
+                  {p.level && <span className="px-1.5 py-0.5 bg-oe-surface rounded text-oe-muted">Level: {p.level}</span>}
+                  <span className="px-1.5 py-0.5 bg-oe-surface rounded text-oe-muted">{p.headcount || 0} staff</span>
+                  {p.min_salary && p.max_salary && (
+                    <span className="px-1.5 py-0.5 bg-oe-surface rounded text-oe-muted">${(p.min_salary/1000).toFixed(0)}k–${(p.max_salary/1000).toFixed(0)}k</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -164,11 +193,11 @@ export default function Settings() {
             {leaveTypes.map(lt => (
               <div key={lt.id} className="card hover:border-oe-primary/30 transition-colors">
                 <div className="flex items-start justify-between mb-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
                     <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: lt.color }} />
-                    <div className="font-semibold text-oe-text">{lt.name}</div>
+                    <div className="font-semibold text-oe-text truncate">{lt.name}</div>
                   </div>
-                  <button onClick={() => openEdit(lt)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors"><Edit size={13} /></button>
+                  <button onClick={() => openEdit(lt)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors flex-shrink-0 ml-2 min-h-[36px] min-w-[36px] flex items-center justify-center"><Edit size={13} /></button>
                 </div>
                 <div className="text-xs text-oe-muted mb-3">{lt.code} · {lt.description || 'No description'}</div>
                 <div className="flex flex-wrap gap-2 text-xs">
@@ -184,24 +213,24 @@ export default function Settings() {
 
       {/* Department Modal */}
       <Modal open={modal === 'departments'} onClose={() => setModal(null)} title={editItem ? 'Edit Department' : 'Add Department'} size="sm">
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="p-4 sm:p-6 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <F label="Department Name" name="name" required />
             <F label="Code" name="code" required />
           </div>
           <F label="Description" name="description" />
           <F label="Location" name="location" />
-          <div className="flex justify-end gap-3">
-            <button onClick={() => setModal(null)} className="btn-secondary">Cancel</button>
-            <button onClick={handleSaveDept} disabled={saving} className="btn-primary">{saving ? 'Saving...' : editItem ? 'Update' : 'Create'}</button>
+          <div className="flex flex-col sm:flex-row justify-end gap-3">
+            <button onClick={() => setModal(null)} className="btn-secondary justify-center">Cancel</button>
+            <button onClick={handleSaveDept} disabled={saving} className="btn-primary justify-center">{saving ? 'Saving...' : editItem ? 'Update' : 'Create'}</button>
           </div>
         </div>
       </Modal>
 
       {/* Position Modal */}
       <Modal open={modal === 'positions'} onClose={() => setModal(null)} title={editItem ? 'Edit Position' : 'Add Position'} size="sm">
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="p-4 sm:p-6 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <F label="Title" name="title" required />
             <F label="Code" name="code" required />
             <div>
@@ -217,17 +246,17 @@ export default function Settings() {
             <F label="Min Salary" name="min_salary" type="number" />
             <F label="Max Salary" name="max_salary" type="number" />
           </div>
-          <div className="flex justify-end gap-3">
-            <button onClick={() => setModal(null)} className="btn-secondary">Cancel</button>
-            <button onClick={handleSavePosition} disabled={saving} className="btn-primary">{saving ? 'Saving...' : editItem ? 'Update' : 'Create'}</button>
+          <div className="flex flex-col sm:flex-row justify-end gap-3">
+            <button onClick={() => setModal(null)} className="btn-secondary justify-center">Cancel</button>
+            <button onClick={handleSavePosition} disabled={saving} className="btn-primary justify-center">{saving ? 'Saving...' : editItem ? 'Update' : 'Create'}</button>
           </div>
         </div>
       </Modal>
 
       {/* Leave Type Modal */}
       <Modal open={modal === 'leave_types'} onClose={() => setModal(null)} title={editItem ? 'Edit Leave Type' : 'Add Leave Type'} size="sm">
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="p-4 sm:p-6 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <F label="Name" name="name" required />
             <F label="Code" name="code" required />
             <F label="Days Allowed" name="days_allowed" type="number" />
@@ -237,19 +266,19 @@ export default function Settings() {
             </div>
           </div>
           <F label="Description" name="description" />
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2 text-sm text-oe-muted cursor-pointer">
+          <div className="flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 text-sm text-oe-muted cursor-pointer min-h-[44px]">
               <input type="checkbox" checked={form.is_paid !== false} onChange={e => setForm({ ...form, is_paid: e.target.checked })} />
               Paid Leave
             </label>
-            <label className="flex items-center gap-2 text-sm text-oe-muted cursor-pointer">
+            <label className="flex items-center gap-2 text-sm text-oe-muted cursor-pointer min-h-[44px]">
               <input type="checkbox" checked={!!form.carry_forward} onChange={e => setForm({ ...form, carry_forward: e.target.checked })} />
               Carry Forward
             </label>
           </div>
-          <div className="flex justify-end gap-3">
-            <button onClick={() => setModal(null)} className="btn-secondary">Cancel</button>
-            <button onClick={handleSaveLeaveType} disabled={saving} className="btn-primary">{saving ? 'Saving...' : editItem ? 'Update' : 'Create'}</button>
+          <div className="flex flex-col sm:flex-row justify-end gap-3">
+            <button onClick={() => setModal(null)} className="btn-secondary justify-center">Cancel</button>
+            <button onClick={handleSaveLeaveType} disabled={saving} className="btn-primary justify-center">{saving ? 'Saving...' : editItem ? 'Update' : 'Create'}</button>
           </div>
         </div>
       </Modal>

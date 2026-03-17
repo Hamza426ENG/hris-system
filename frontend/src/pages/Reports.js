@@ -8,7 +8,7 @@ const fmtCurrency = (n) => n ? new Intl.NumberFormat('en-US', { style: 'currency
 
 const TABS = [
   { id: 'headcount', label: 'Headcount', icon: Users },
-  { id: 'leaves', label: 'Leave Analysis', icon: Calendar },
+  { id: 'leaves', label: 'Leaves', icon: Calendar },
   { id: 'payroll', label: 'Payroll', icon: DollarSign },
   { id: 'salary', label: 'Salary', icon: TrendingUp },
 ];
@@ -65,21 +65,24 @@ export default function Reports() {
   return (
     <div className="space-y-5">
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex bg-oe-surface rounded-xl p-1 gap-1">
-          {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === t.id ? 'bg-oe-card text-oe-text shadow' : 'text-oe-muted hover:text-oe-text'}`}>
-              <t.icon size={14} />{t.label}
-            </button>
-          ))}
+      <div className="flex flex-col sm:flex-row gap-3">
+        {/* Tab buttons — scrollable on mobile */}
+        <div className="overflow-x-auto -mx-3 sm:mx-0 px-3 sm:px-0">
+          <div className="flex bg-oe-surface rounded-xl p-1 gap-1 w-max sm:w-auto">
+            {TABS.map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${tab === t.id ? 'bg-oe-card text-oe-text shadow' : 'text-oe-muted hover:text-oe-text'}`}>
+                <t.icon size={14} />{t.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="ml-auto flex gap-2">
+        <div className="flex gap-2 sm:ml-auto">
           {tab !== 'salary' && (
             <select className="input w-24" value={year} onChange={e => setYear(e.target.value)}>
               {[2025, 2024, 2023].map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           )}
-          <button onClick={printReport} className="btn-secondary no-print"><Download size={15} /> Print / Export</button>
+          <button onClick={printReport} className="btn-secondary no-print flex-1 sm:flex-none justify-center"><Download size={15} /> Print / Export</button>
         </div>
       </div>
 
@@ -234,30 +237,46 @@ export default function Reports() {
                   <h3 className="font-semibold text-oe-text">Top Leave Takers</h3>
                   <button onClick={() => exportCSV(data.employees, 'leave_report')} className="text-xs text-oe-primary hover:underline no-print">Export CSV</button>
                 </div>
-                <table className="w-full">
-                  <thead className="bg-oe-surface/50">
-                    <tr>
-                      {['Employee', 'Department', 'Requests', 'Days Taken'].map(h => <th key={h} className="table-header">{h}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.employees?.slice(0, 10).map(e => (
-                      <tr key={e.name} className="table-row">
-                        <td className="table-cell font-medium text-oe-text">{e.name}</td>
-                        <td className="table-cell text-oe-muted text-xs">{e.department}</td>
-                        <td className="table-cell text-center">{e.total_requests}</td>
-                        <td className="table-cell">
-                          <div className="flex items-center gap-2">
-                            <div className="h-1.5 rounded-full bg-oe-border flex-1">
-                              <div className="h-full rounded-full bg-oe-primary" style={{ width: `${(e.days_taken / (data.employees?.[0]?.days_taken || 1)) * 100}%` }} />
-                            </div>
-                            <span className="text-sm text-oe-text w-6">{e.days_taken}</span>
-                          </div>
-                        </td>
+                {/* Desktop */}
+                <div className="hidden md:block">
+                  <table className="w-full">
+                    <thead className="bg-oe-surface/50">
+                      <tr>
+                        {['Employee', 'Department', 'Requests', 'Days Taken'].map(h => <th key={h} className="table-header">{h}</th>)}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {data.employees?.slice(0, 10).map(e => (
+                        <tr key={e.name} className="table-row">
+                          <td className="table-cell font-medium text-oe-text">{e.name}</td>
+                          <td className="table-cell text-oe-muted text-xs">{e.department}</td>
+                          <td className="table-cell text-center">{e.total_requests}</td>
+                          <td className="table-cell">
+                            <div className="flex items-center gap-2">
+                              <div className="h-1.5 rounded-full bg-oe-border flex-1">
+                                <div className="h-full rounded-full bg-oe-primary" style={{ width: `${(e.days_taken / (data.employees?.[0]?.days_taken || 1)) * 100}%` }} />
+                              </div>
+                              <span className="text-sm text-oe-text w-6">{e.days_taken}</span>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {/* Mobile */}
+                <div className="md:hidden space-y-2">
+                  {data.employees?.slice(0, 10).map((e, i) => (
+                    <div key={e.name} className="flex items-center gap-3 py-2 border-b border-oe-border/50 last:border-0">
+                      <div className="text-sm font-medium text-oe-text flex-1 min-w-0">
+                        <div className="truncate">{e.name}</div>
+                        <div className="text-xs text-oe-muted">{e.department}</div>
+                      </div>
+                      <div className="text-xs text-oe-muted flex-shrink-0">{e.total_requests} req</div>
+                      <div className="text-sm font-semibold text-oe-primary flex-shrink-0">{e.days_taken}d</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -290,24 +309,52 @@ export default function Reports() {
                     <h3 className="font-semibold text-oe-text">Payroll by Department</h3>
                     <button onClick={() => exportCSV(data.byDept, 'payroll_by_dept')} className="text-xs text-oe-primary hover:underline no-print">Export CSV</button>
                   </div>
-                  <table className="w-full">
-                    <thead className="bg-oe-surface/50">
-                      <tr>
-                        {['Department', 'Employees', 'Total Gross', 'Total Deductions', 'Total Net'].map(h => <th key={h} className="table-header">{h}</th>)}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.byDept.map(d => (
-                        <tr key={d.department} className="table-row">
-                          <td className="table-cell font-medium text-oe-text">{d.department}</td>
-                          <td className="table-cell text-center">{d.employees}</td>
-                          <td className="table-cell text-oe-success">{fmtCurrency(d.gross)}</td>
-                          <td className="table-cell text-oe-danger">-{fmtCurrency(d.deductions)}</td>
-                          <td className="table-cell text-oe-primary font-semibold">{fmtCurrency(d.net)}</td>
+                  {/* Desktop */}
+                  <div className="hidden md:block">
+                    <table className="w-full">
+                      <thead className="bg-oe-surface/50">
+                        <tr>
+                          {['Department', 'Employees', 'Total Gross', 'Total Deductions', 'Total Net'].map(h => <th key={h} className="table-header">{h}</th>)}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {data.byDept.map(d => (
+                          <tr key={d.department} className="table-row">
+                            <td className="table-cell font-medium text-oe-text">{d.department}</td>
+                            <td className="table-cell text-center">{d.employees}</td>
+                            <td className="table-cell text-oe-success">{fmtCurrency(d.gross)}</td>
+                            <td className="table-cell text-oe-danger">-{fmtCurrency(d.deductions)}</td>
+                            <td className="table-cell text-oe-primary font-semibold">{fmtCurrency(d.net)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {/* Mobile */}
+                  <div className="md:hidden space-y-3">
+                    {data.byDept.map(d => (
+                      <div key={d.department} className="bg-slate-50 rounded-xl p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-medium text-oe-text text-sm">{d.department}</span>
+                          <span className="text-xs text-oe-muted">{d.employees} employees</span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div>
+                            <div className="text-xs text-oe-muted">Gross</div>
+                            <div className="text-xs font-semibold text-oe-success">{fmtCurrency(d.gross)}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-oe-muted">Deductions</div>
+                            <div className="text-xs font-semibold text-oe-danger">-{fmtCurrency(d.deductions)}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-oe-muted">Net</div>
+                            <div className="text-xs font-semibold text-oe-primary">{fmtCurrency(d.net)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -342,7 +389,8 @@ export default function Reports() {
                     <span className="font-semibold text-oe-text text-sm">Employee Salary Details</span>
                     <button onClick={() => exportCSV(data.employees, 'salary_report')} className="text-xs text-oe-primary hover:underline no-print">Export CSV</button>
                   </div>
-                  <div className="overflow-x-auto">
+                  {/* Desktop */}
+                  <div className="hidden md:block overflow-x-auto">
                     <table className="w-full">
                       <thead className="bg-oe-surface/50">
                         <tr>
@@ -363,6 +411,34 @@ export default function Reports() {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                  {/* Mobile */}
+                  <div className="md:hidden divide-y divide-oe-border">
+                    {data.employees.map(e => (
+                      <div key={e.emp_code} className="px-4 py-3">
+                        <div className="flex items-start justify-between mb-1">
+                          <div>
+                            <div className="text-sm font-medium text-oe-text">{e.name}</div>
+                            <div className="text-xs text-oe-muted">{e.position} · {e.department}</div>
+                          </div>
+                          {e.grade && <span className="text-xs px-1.5 py-0.5 bg-oe-surface rounded text-oe-muted flex-shrink-0">{e.grade}</span>}
+                        </div>
+                        <div className="flex gap-4 mt-2">
+                          <div>
+                            <div className="text-xs text-oe-muted">Basic</div>
+                            <div className="text-sm font-medium text-oe-text">{fmtCurrency(e.basic_salary)}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-oe-muted">Gross</div>
+                            <div className="text-sm font-semibold text-oe-success">{fmtCurrency(e.gross_salary)}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-oe-muted">Net</div>
+                            <div className="text-sm font-semibold text-oe-primary">{fmtCurrency(e.net_salary)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

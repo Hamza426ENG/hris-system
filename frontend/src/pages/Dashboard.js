@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { dashboardAPI, employeesAPI } from '../services/api';
-import { Users, Calendar, Clock, Building2, TrendingUp, DollarSign, Gift, ChevronRight, X } from 'lucide-react';
+import { Users, Calendar, Clock, Building2, TrendingUp, DollarSign, Gift, ChevronRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import Modal from '../components/Modal';
 
