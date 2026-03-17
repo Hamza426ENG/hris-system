@@ -7,6 +7,8 @@ const api = axios.create({ baseURL: API_URL });
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('hris_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  // Bypass localtunnel reminder page for API requests
+  config.headers['bypass-tunnel-reminder'] = 'true';
   return config;
 });
 
