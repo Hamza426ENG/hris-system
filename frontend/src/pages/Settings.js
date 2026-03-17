@@ -14,7 +14,6 @@ export default function Settings() {
   const [departments, setDepartments] = useState([]);
   const [positions, setPositions] = useState([]);
   const [leaveTypes, setLeaveTypes] = useState([]);
-  const [allEmployees, setAllEmployees] = useState([]);
   const [deptEmployees, setDeptEmployees] = useState([]);
   const [modal, setModal] = useState(null);
   const [editItem, setEditItem] = useState(null);
@@ -25,7 +24,6 @@ export default function Settings() {
     departmentsAPI.list().then(r => setDepartments(r.data)).catch(console.error);
     positionsAPI.list().then(r => setPositions(r.data)).catch(console.error);
     leavesAPI.types().then(r => setLeaveTypes(r.data)).catch(console.error);
-    employeesAPI.list({ status: 'active', limit: 200 }).then(r => setAllEmployees(r.data.data || [])).catch(console.error);
   };
 
   useEffect(() => { loadAll(); }, []);
@@ -96,15 +94,6 @@ export default function Settings() {
       <input type={type} className="input" value={form[name] || ''} onChange={e => setForm({ ...form, [name]: e.target.value })} />
     </div>
   );
-
-  // Employees list for dept head dropdown:
-  // If editing: dept employees first, then remaining active employees
-  const headOptions = editItem
-    ? [
-        ...deptEmployees,
-        ...allEmployees.filter(e => !deptEmployees.find(d => d.id === e.id)),
-      ]
-    : allEmployees;
 
   return (
     <div className="space-y-5">
@@ -263,25 +252,7 @@ export default function Settings() {
               onChange={e => setForm({ ...form, head_employee_id: e.target.value || null })}
             >
               <option value="">— Not assigned —</option>
-              {editItem && deptEmployees.length > 0 && (
-                <optgroup label={`${editItem.name} employees`}>
-                  {deptEmployees.map(e => (
-                    <option key={e.id} value={e.id}>
-                      {e.first_name} {e.last_name} · {e.position_title || 'No position'}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {headOptions.filter(e => !deptEmployees.find(d => d.id === e.id)).length > 0 && (
-                <optgroup label="Other employees">
-                  {headOptions.filter(e => !deptEmployees.find(d => d.id === e.id)).map(e => (
-                    <option key={e.id} value={e.id}>
-                      {e.first_name} {e.last_name} · {e.position_title || e.department_name || 'No position'}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {!editItem && headOptions.map(e => (
+              {deptEmployees.map(e => (
                 <option key={e.id} value={e.id}>
                   {e.first_name} {e.last_name} · {e.position_title || 'No position'}
                 </option>
