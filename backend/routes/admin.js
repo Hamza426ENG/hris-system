@@ -1,4 +1,5 @@
 const express = require('express');
+const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 
@@ -67,6 +68,56 @@ router.put('/users/:id/role', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/admin/users - create a new user account
+router.post('/users', async (req, res) => {
+  try {
+    const { email, password, role, employee_id } = req.body;
+
+    if (!email || !password || !role) {
+      return res.status(400).json({ error: 'Email, password, and role are required.' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+    }
+    if (!VALID_ROLES.includes(role)) {
+      return res.status(400).json({ error: 'Invalid role.' });
+    }
+
+    // Check email not already taken
+    const existing = await db.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'A user with this email already exists.' });
+    }
+
+    // If linking to an employee, ensure they don't already have a user
+    if (employee_id) {
+      const empCheck = await db.query(
+        'SELECT user_id FROM employees WHERE id = $1', [employee_id]
+      );
+      if (empCheck.rows[0]?.user_id) {
+        return res.status(409).json({ error: 'This employee already has a user account.' });
+      }
+    }
+
+    const hash = await bcrypt.hash(password, 10);
+    const userRes = await db.query(
+      'INSERT INTO users (email, password, role, is_active) VALUES ($1, $2, $3, true) RETURNING id, email, role, is_active, created_at',
+      [email.toLowerCase(), hash, role]
+    );
+    const newUser = userRes.rows[0];
+
+    // Link to employee record if provided
+    if (employee_id) {
+      await db.query('UPDATE employees SET user_id = $1 WHERE id = $2', [newUser.id, employee_id]);
+    }
+
+    res.status(201).json({ message: 'User created successfully.', user: newUser });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error: ' + err.message });
   }
 });
 
