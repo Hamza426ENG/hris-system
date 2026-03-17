@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { departmentsAPI, positionsAPI, leavesAPI } from '../services/api';
+import { departmentsAPI, positionsAPI, leavesAPI, employeesAPI } from '../services/api';
 import Modal from '../components/Modal';
-import { Plus, Edit, Trash2, Building2, Briefcase, Calendar, Settings as SettingsIcon } from 'lucide-react';
+import { Plus, Edit, Trash2, Building2, Briefcase, Calendar, UserCheck } from 'lucide-react';
 
 const TABS = [
   { id: 'departments', label: 'Departments', icon: Building2 },
@@ -14,6 +14,8 @@ export default function Settings() {
   const [departments, setDepartments] = useState([]);
   const [positions, setPositions] = useState([]);
   const [leaveTypes, setLeaveTypes] = useState([]);
+  const [allEmployees, setAllEmployees] = useState([]);
+  const [deptEmployees, setDeptEmployees] = useState([]);
   const [modal, setModal] = useState(null);
   const [editItem, setEditItem] = useState(null);
   const [form, setForm] = useState({});
@@ -23,12 +25,30 @@ export default function Settings() {
     departmentsAPI.list().then(r => setDepartments(r.data)).catch(console.error);
     positionsAPI.list().then(r => setPositions(r.data)).catch(console.error);
     leavesAPI.types().then(r => setLeaveTypes(r.data)).catch(console.error);
+    employeesAPI.list({ status: 'active', limit: 200 }).then(r => setAllEmployees(r.data.data || [])).catch(console.error);
   };
 
   useEffect(() => { loadAll(); }, []);
 
-  const openAdd = () => { setEditItem(null); setForm({}); setModal(tab); };
-  const openEdit = (item) => { setEditItem(item); setForm({ ...item }); setModal(tab); };
+  // When dept modal opens, load employees in that department
+  const openAdd = () => {
+    setEditItem(null);
+    setForm({});
+    setDeptEmployees([]);
+    setModal(tab);
+  };
+
+  const openEdit = async (item) => {
+    setEditItem(item);
+    setForm({ ...item });
+    setModal(tab);
+    if (tab === 'departments') {
+      try {
+        const res = await employeesAPI.list({ department: item.id, status: 'active', limit: 200 });
+        setDeptEmployees(res.data.data || []);
+      } catch { setDeptEmployees([]); }
+    }
+  };
 
   const handleSaveDept = async () => {
     if (!form.name || !form.code) { alert('Name and code required'); return; }
@@ -77,9 +97,18 @@ export default function Settings() {
     </div>
   );
 
+  // Employees list for dept head dropdown:
+  // If editing: dept employees first, then remaining active employees
+  const headOptions = editItem
+    ? [
+        ...deptEmployees,
+        ...allEmployees.filter(e => !deptEmployees.find(d => d.id === e.id)),
+      ]
+    : allEmployees;
+
   return (
     <div className="space-y-5">
-      {/* Tabs — scrollable on mobile */}
+      {/* Tabs */}
       <div className="overflow-x-auto -mx-3 sm:mx-0 px-3 sm:px-0">
         <div className="flex gap-1 bg-oe-surface rounded-xl p-1 w-max sm:w-fit">
           {TABS.map(t => (
@@ -111,8 +140,11 @@ export default function Settings() {
                 </div>
                 <div className="text-xs text-oe-muted">{d.description || 'No description'}</div>
                 <div className="flex items-center justify-between mt-3 pt-3 border-t border-oe-border/50">
-                  <span className="text-xs text-oe-muted">Head: {d.head_name || 'Unassigned'}</span>
-                  <span className="text-xs font-medium text-oe-text">{d.active_count || d.headcount || 0} employees</span>
+                  <div className="flex items-center gap-1.5">
+                    <UserCheck size={12} className={d.head_name ? 'text-oe-success' : 'text-oe-muted'} />
+                    <span className="text-xs text-oe-muted truncate max-w-[120px]">{d.head_name || 'No head assigned'}</span>
+                  </div>
+                  <span className="text-xs font-medium text-oe-text">{d.active_count || 0} employees</span>
                 </div>
               </div>
             ))}
@@ -126,7 +158,6 @@ export default function Settings() {
           <div className="flex justify-end">
             <button onClick={openAdd} className="btn-primary"><Plus size={15} /> Add Position</button>
           </div>
-          {/* Desktop table */}
           <div className="card p-0 overflow-hidden hidden md:block">
             <table className="w-full">
               <thead className="bg-oe-surface/50">
@@ -155,7 +186,6 @@ export default function Settings() {
               </tbody>
             </table>
           </div>
-          {/* Mobile card list */}
           <div className="md:hidden space-y-3">
             {positions.map(p => (
               <div key={p.id} className="bg-white border border-oe-border rounded-xl p-4">
@@ -220,6 +250,48 @@ export default function Settings() {
           </div>
           <F label="Description" name="description" />
           <F label="Location" name="location" />
+
+          {/* Head of Department */}
+          <div>
+            <label className="label flex items-center gap-1.5">
+              <UserCheck size={13} className="text-oe-purple" />
+              Head of Department
+            </label>
+            <select
+              className="input"
+              value={form.head_employee_id || ''}
+              onChange={e => setForm({ ...form, head_employee_id: e.target.value || null })}
+            >
+              <option value="">— Not assigned —</option>
+              {editItem && deptEmployees.length > 0 && (
+                <optgroup label={`${editItem.name} employees`}>
+                  {deptEmployees.map(e => (
+                    <option key={e.id} value={e.id}>
+                      {e.first_name} {e.last_name} · {e.position_title || 'No position'}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {headOptions.filter(e => !deptEmployees.find(d => d.id === e.id)).length > 0 && (
+                <optgroup label="Other employees">
+                  {headOptions.filter(e => !deptEmployees.find(d => d.id === e.id)).map(e => (
+                    <option key={e.id} value={e.id}>
+                      {e.first_name} {e.last_name} · {e.position_title || e.department_name || 'No position'}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {!editItem && headOptions.map(e => (
+                <option key={e.id} value={e.id}>
+                  {e.first_name} {e.last_name} · {e.position_title || 'No position'}
+                </option>
+              ))}
+            </select>
+            {editItem && deptEmployees.length === 0 && (
+              <p className="text-xs text-oe-muted mt-1">No active employees in this department yet.</p>
+            )}
+          </div>
+
           <div className="flex flex-col sm:flex-row justify-end gap-3">
             <button onClick={() => setModal(null)} className="btn-secondary justify-center">Cancel</button>
             <button onClick={handleSaveDept} disabled={saving} className="btn-primary justify-center">{saving ? 'Saving...' : editItem ? 'Update' : 'Create'}</button>
