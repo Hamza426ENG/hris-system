@@ -110,6 +110,7 @@ export const announcementsAPI = {
 
 export const adminAPI = {
   users: (params) => api.get('/admin/users', { params }),
+  createUser: (data) => api.post('/admin/users', data),
   updateRole: (id, role) => api.put(`/admin/users/${id}/role`, { role }),
   toggleUser: (id) => api.put(`/admin/users/${id}/toggle`),
 };
