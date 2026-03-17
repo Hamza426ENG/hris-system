@@ -2,7 +2,7 @@
   "name": "hris-backend",
   "version": "1.0.0",
   "scripts": {
-    "install:backend": "cd backend && npm ci",
+    "postinstall": "cd backend && npm ci",
     "start": "cd backend && node server.js"
   },
   "engines": {
