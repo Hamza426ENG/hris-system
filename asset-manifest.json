@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/hris-system/static/css/main.c2a76c6c.css",
+    "main.js": "/hris-system/static/js/main.a3968a7a.js",
+    "index.html": "/hris-system/index.html",
+    "main.c2a76c6c.css.map": "/hris-system/static/css/main.c2a76c6c.css.map",
+    "main.a3968a7a.js.map": "/hris-system/static/js/main.a3968a7a.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.c2a76c6c.css",
+    "static/js/main.a3968a7a.js"
+  ]
+}
