@@ -2,22 +2,28 @@ import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, GitBranch, Calendar, DollarSign,
-  BarChart3, Settings, ChevronLeft, Wallet, Building2
+  BarChart3, Settings, ChevronLeft, Wallet, Building2, ShieldCheck
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
-const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/employees', icon: Users, label: 'Employees' },
-  { to: '/organogram', icon: GitBranch, label: 'Organogram' },
-  { to: '/leaves', icon: Calendar, label: 'Leave Management' },
-  { to: '/salary', icon: DollarSign, label: 'Salary & Comp' },
-  { to: '/payroll', icon: Wallet, label: 'Payroll' },
-  { to: '/reports', icon: BarChart3, label: 'Reports' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+const allNavItems = [
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['super_admin', 'hr_admin', 'team_lead', 'employee'] },
+  { to: '/employees', icon: Users, label: 'Employees', roles: ['super_admin', 'hr_admin', 'team_lead', 'employee'] },
+  { to: '/organogram', icon: GitBranch, label: 'Organogram', roles: ['super_admin', 'hr_admin', 'team_lead'] },
+  { to: '/leaves', icon: Calendar, label: 'Leave Management', roles: ['super_admin', 'hr_admin', 'team_lead', 'employee'] },
+  { to: '/salary', icon: DollarSign, label: 'Salary & Comp', roles: ['super_admin', 'hr_admin', 'team_lead', 'employee'] },
+  { to: '/payroll', icon: Wallet, label: 'Payroll', roles: ['super_admin', 'hr_admin'] },
+  { to: '/reports', icon: BarChart3, label: 'Reports', roles: ['super_admin', 'hr_admin'] },
+  { to: '/settings', icon: Settings, label: 'Settings', roles: ['super_admin', 'hr_admin'] },
+  { to: '/admin', icon: ShieldCheck, label: 'Admin Panel', roles: ['super_admin'] },
 ];
 
 export default function Sidebar({ open, setOpen }) {
   const location = useLocation();
+  const { user } = useAuth();
+  const role = user?.role;
+
+  const navItems = allNavItems.filter(item => item.roles.includes(role));
 
   return (
     <aside className={`${open ? 'w-60' : 'w-16'} flex-shrink-0 bg-white border-r border-oe-border flex flex-col transition-all duration-300 relative z-20 shadow-sm`}>

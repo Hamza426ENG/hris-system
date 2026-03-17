@@ -1,9 +1,10 @@
 const express = require('express');
 const db = require('../db');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 router.use(authenticate);
+router.use(authorize('super_admin', 'hr_admin'));
 
 // GET all payroll runs
 router.get('/', async (req, res) => {

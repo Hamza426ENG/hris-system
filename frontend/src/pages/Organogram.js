@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { organogramAPI, departmentsAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { Search, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import Avatar from '../components/Avatar';
 
 const NodeCard = ({ node, navigate }) => (
   <div className="relative">
@@ -10,9 +11,8 @@ const NodeCard = ({ node, navigate }) => (
       className="bg-oe-card border border-oe-border rounded-xl px-4 py-3 cursor-pointer hover:border-oe-primary/50 hover:shadow-lg hover:shadow-oe-primary/10 transition-all duration-200 w-44 text-center group"
       onClick={() => navigate(`/employees/${node.id}`)}
     >
-      <div className="w-10 h-10 mx-auto mb-2 rounded-full flex items-center justify-center text-sm font-bold text-white"
-        style={{ background: 'linear-gradient(135deg, #1D6BE4, #7C5CFC)' }}>
-        {`${node.first_name?.[0] || ''}${node.last_name?.[0] || ''}`.toUpperCase()}
+      <div className="mx-auto mb-2 w-10 h-10 ring-2 ring-oe-border rounded-full overflow-hidden">
+        <Avatar src={node.avatar_url} firstName={node.first_name} lastName={node.last_name} size={40} />
       </div>
       <div className="text-xs font-semibold text-oe-text truncate">{node.first_name} {node.last_name}</div>
       <div className="text-xs text-oe-primary truncate mt-0.5">{node.position_title || 'No title'}</div>
@@ -64,9 +64,8 @@ const TreeNode = ({ node, navigate, level = 0 }) => {
         style={{ borderColor: level === 0 ? '#1D6BE4' : undefined }}
         onClick={() => navigate(`/employees/${node.id}`)}
       >
-        <div className={`w-10 h-10 mx-auto mb-2 rounded-full flex items-center justify-center text-sm font-bold text-white`}
-          style={{ background: level === 0 ? 'linear-gradient(135deg, #1D6BE4, #7C5CFC)' : level === 1 ? 'linear-gradient(135deg, #7C5CFC, #00D4FF)' : 'linear-gradient(135deg, #00D4AA, #1D6BE4)' }}>
-          {`${node.first_name?.[0] || ''}${node.last_name?.[0] || ''}`.toUpperCase()}
+        <div className={`mx-auto mb-2 w-12 h-12 rounded-full overflow-hidden ring-2 ${level === 0 ? 'ring-oe-primary' : level === 1 ? 'ring-purple-400' : 'ring-oe-border'}`}>
+          <Avatar src={node.avatar_url} firstName={node.first_name} lastName={node.last_name} size={48} />
         </div>
         <div className="text-xs font-semibold text-oe-text truncate">{node.first_name} {node.last_name}</div>
         <div className="text-xs truncate mt-0.5" style={{ color: level === 0 ? '#1D6BE4' : '#7C5CFC' }}>{node.position_title || 'No title'}</div>

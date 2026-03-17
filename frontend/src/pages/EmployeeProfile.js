@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { employeesAPI, leavesAPI, salaryAPI } from '../services/api';
-import { ArrowLeft, Mail, Phone, MapPin, Calendar, Briefcase, User, DollarSign, Clock, Plus, Edit } from 'lucide-react';
+import { ArrowLeft, Mail, Phone, MapPin, Calendar, Briefcase, User, DollarSign, Clock, Plus, Edit, Camera } from 'lucide-react';
 import Modal from '../components/Modal';
+import Avatar from '../components/Avatar';
 
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '-';
 const fmtCurrency = (n) => n ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n) : '-';
@@ -22,6 +23,25 @@ export default function EmployeeProfile() {
   const [salaryModal, setSalaryModal] = useState(false);
   const [salaryForm, setSalaryForm] = useState({ basic_salary: '', housing_allowance: '', transport_allowance: '', meal_allowance: '', medical_allowance: '', mobile_allowance: '', other_allowances: '', tax_deduction: '', pension_deduction: '', health_insurance: '', other_deductions: '', effective_date: new Date().toISOString().split('T')[0], notes: '' });
   const [saving, setSaving] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const avatarInputRef = useRef(null);
+
+  const handleAvatarUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { alert('Please select an image file'); return; }
+    if (file.size > 2 * 1024 * 1024) { alert('Image must be under 2MB'); return; }
+    setAvatarUploading(true);
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        await employeesAPI.updateAvatar(id, ev.target.result);
+        setEmp(prev => ({ ...prev, avatar_url: ev.target.result }));
+      } catch { alert('Failed to update photo'); }
+      finally { setAvatarUploading(false); }
+    };
+    reader.readAsDataURL(file);
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -73,8 +93,16 @@ export default function EmployeeProfile() {
       {/* Header Card */}
       <div className="card">
         <div className="flex flex-wrap items-start gap-5">
-          <div className="w-16 h-16 gradient-bg rounded-2xl flex items-center justify-center text-2xl font-bold text-white flex-shrink-0">
-            {`${emp.first_name?.[0] || ''}${emp.last_name?.[0] || ''}`.toUpperCase()}
+          <div className="relative flex-shrink-0 group cursor-pointer" onClick={() => avatarInputRef.current?.click()}>
+            <div className="w-16 h-16 rounded-2xl overflow-hidden ring-2 ring-oe-border">
+              <Avatar src={emp.avatar_url} firstName={emp.first_name} lastName={emp.last_name} size={64} className="w-full h-full" />
+            </div>
+            <div className="absolute inset-0 rounded-2xl bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              {avatarUploading
+                ? <div className="w-5 h-5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                : <Camera size={18} className="text-white" />}
+            </div>
+            <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex flex-wrap items-center gap-3 mb-1">

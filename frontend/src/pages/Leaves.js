@@ -15,12 +15,13 @@ export default function Leaves() {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ status: '', year: new Date().getFullYear() });
+  const isHR = ['super_admin', 'hr_admin'].includes(user?.role);
+  const canApprove = ['super_admin', 'hr_admin', 'team_lead'].includes(user?.role);
   const [modal, setModal] = useState(null);
   const [selected, setSelected] = useState(null);
   const [reviewComment, setReviewComment] = useState('');
-  const [form, setForm] = useState({ employee_id: '', leave_type_id: '', start_date: '', end_date: '', reason: '', half_day: false });
+  const [form, setForm] = useState({ employee_id: isHR ? '' : (user?.employeeId || ''), leave_type_id: '', start_date: '', end_date: '', reason: '', half_day: false });
   const [saving, setSaving] = useState(false);
-  const isHR = ['super_admin', 'hr_admin', 'hr_manager', 'manager'].includes(user?.role);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -34,8 +35,8 @@ export default function Leaves() {
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     leavesAPI.types().then(r => setTypes(r.data));
-    if (isHR) employeesAPI.list({ status: 'active' }).then(r => setEmployees(r.data.data));
-  }, [isHR]);
+    if (canApprove) employeesAPI.list({ status: 'active' }).then(r => setEmployees(r.data.data));
+  }, [canApprove]);
 
   const handleApprove = async () => {
     await leavesAPI.approve(selected.id, { review_comments: reviewComment });
@@ -52,14 +53,16 @@ export default function Leaves() {
   };
 
   const handleSubmit = async () => {
-    if (!form.employee_id || !form.leave_type_id || !form.start_date || !form.end_date || !form.reason) {
+    const employeeId = isHR ? form.employee_id : (form.employee_id || user?.employeeId || '');
+    const submitForm = { ...form, employee_id: employeeId };
+    if (!submitForm.employee_id || !submitForm.leave_type_id || !submitForm.start_date || !submitForm.end_date || !submitForm.reason) {
       alert('Please fill all required fields'); return;
     }
     setSaving(true);
     try {
-      await leavesAPI.create(form);
+      await leavesAPI.create(submitForm);
       setModal(null);
-      setForm({ employee_id: '', leave_type_id: '', start_date: '', end_date: '', reason: '', half_day: false });
+      setForm({ employee_id: isHR ? '' : (user?.employeeId || ''), leave_type_id: '', start_date: '', end_date: '', reason: '', half_day: false });
       load();
     } catch (err) { alert(err.response?.data?.error || 'Failed to submit'); }
     finally { setSaving(false); }
@@ -112,8 +115,8 @@ export default function Leaves() {
         <button onClick={() => setModal('request')} className="btn-primary ml-auto"><Plus size={15} /> Request Leave</button>
       </div>
 
-      {/* Pending section for HR */}
-      {isHR && pending.length > 0 && (
+      {/* Pending section for approvers */}
+      {canApprove && pending.length > 0 && (
         <div className="card border-oe-warning/30">
           <div className="flex items-center gap-2 mb-3">
             <Calendar size={15} className="text-oe-warning" />
@@ -185,7 +188,7 @@ export default function Leaves() {
                   <td className="table-cell text-xs text-oe-muted">{l.reviewer_name || '-'}</td>
                   <td className="table-cell">
                     <div className="flex gap-1">
-                      {isHR && l.status === 'pending' && (
+                      {canApprove && l.status === 'pending' && (
                         <>
                           <button onClick={() => { setSelected(l); setModal('review'); }} className="p-1.5 rounded hover:bg-oe-surface text-oe-muted hover:text-oe-success transition-colors" title="Review"><Check size={13} /></button>
                           <button onClick={() => { setSelected(l); setModal('reject'); }} className="p-1.5 rounded hover:bg-oe-surface text-oe-muted hover:text-oe-danger transition-colors" title="Reject"><X size={13} /></button>
@@ -207,6 +210,15 @@ export default function Leaves() {
       <Modal open={modal === 'request'} onClose={() => setModal(null)} title="Request Leave" size="md">
         <div className="p-6 space-y-4">
           {isHR && (
+            <div>
+              <label className="label">Employee *</label>
+              <select className="input" value={form.employee_id} onChange={e => setForm({ ...form, employee_id: e.target.value })}>
+                <option value="">Select employee...</option>
+                {employees.map(e => <option key={e.id} value={e.id}>{e.first_name} {e.last_name} ({e.employee_id})</option>)}
+              </select>
+            </div>
+          )}
+          {canApprove && !isHR && (
             <div>
               <label className="label">Employee *</label>
               <select className="input" value={form.employee_id} onChange={e => setForm({ ...form, employee_id: e.target.value })}>

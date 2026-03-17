@@ -36,6 +36,7 @@ export const employeesAPI = {
   create: (data) => api.post('/employees', data),
   update: (id, data) => api.put(`/employees/${id}`, data),
   delete: (id) => api.delete(`/employees/${id}`),
+  updateAvatar: (id, avatar_url) => api.put(`/employees/${id}/avatar`, { avatar_url }),
   getLeaves: (id) => api.get(`/employees/${id}/leaves`),
   getSalary: (id) => api.get(`/employees/${id}/salary`),
   getPayroll: (id) => api.get(`/employees/${id}/payroll`),
@@ -104,6 +105,12 @@ export const announcementsAPI = {
   list: () => api.get('/announcements'),
   create: (data) => api.post('/announcements', data),
   delete: (id) => api.delete(`/announcements/${id}`),
+};
+
+export const adminAPI = {
+  users: (params) => api.get('/admin/users', { params }),
+  updateRole: (id, role) => api.put(`/admin/users/${id}/role`, { role }),
+  toggleUser: (id) => api.put(`/admin/users/${id}/toggle`),
 };
 
 export default api;

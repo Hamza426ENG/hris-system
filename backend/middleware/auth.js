@@ -12,7 +12,7 @@ const authenticate = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     const result = await db.query(
-      'SELECT id, email, role, is_active FROM users WHERE id = $1',
+      'SELECT u.id, u.email, u.role, u.is_active, e.id as employee_id FROM users u LEFT JOIN employees e ON e.user_id = u.id WHERE u.id = $1',
       [decoded.userId]
     );
 

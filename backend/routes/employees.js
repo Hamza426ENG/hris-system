@@ -25,6 +25,17 @@ router.get('/', async (req, res) => {
     if (status) { where.push(`e.status = $${i++}`); params.push(status); }
     if (employment_type) { where.push(`e.employment_type = $${i++}`); params.push(employment_type); }
 
+    // Role-based filtering
+    const role = req.user.role;
+    if (role === 'team_lead') {
+      where.push(`(e.manager_id = $${i} OR e.id = $${i})`);
+      params.push(req.user.employee_id);
+      i++;
+    } else if (role === 'employee') {
+      where.push(`e.id = $${i++}`);
+      params.push(req.user.employee_id);
+    }
+
     const query = `
       SELECT e.*,
         d.name as department_name, d.code as department_code,
@@ -196,6 +207,22 @@ router.delete('/:id', async (req, res) => {
   try {
     await db.query("UPDATE employees SET status = 'terminated', updated_at = NOW() WHERE id = $1", [req.params.id]);
     res.json({ message: 'Employee deactivated' });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT /api/employees/:id/avatar
+router.put('/:id/avatar', async (req, res) => {
+  try {
+    const { avatar_url } = req.body;
+    if (!avatar_url) return res.status(400).json({ error: 'avatar_url required' });
+    const result = await db.query(
+      'UPDATE employees SET avatar_url = $1, updated_at = NOW() WHERE id = $2 RETURNING id, avatar_url',
+      [avatar_url, req.params.id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Employee not found' });
+    res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }

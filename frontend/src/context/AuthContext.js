@@ -49,8 +49,17 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
+  const permissions = {
+    isAdmin: user?.role === 'super_admin',
+    isHR: ['super_admin', 'hr_admin'].includes(user?.role),
+    isTeamLead: ['super_admin', 'hr_admin', 'team_lead'].includes(user?.role),
+    canManageAll: ['super_admin', 'hr_admin'].includes(user?.role),
+    isEmployee: user?.role === 'employee',
+    isSelfOnly: user?.role === 'employee',
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, logout, loading, permissions }}>
       {children}
     </AuthContext.Provider>
   );

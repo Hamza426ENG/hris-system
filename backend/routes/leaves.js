@@ -18,6 +18,17 @@ router.get('/', async (req, res) => {
     if (leave_type_id) { where.push(`lr.leave_type_id = $${i++}`); params.push(leave_type_id); }
     if (year) { where.push(`EXTRACT(YEAR FROM lr.start_date) = $${i++}`); params.push(year); }
 
+    // Role-based filtering
+    const role = req.user.role;
+    if (role === 'team_lead') {
+      where.push(`(e.manager_id = $${i} OR lr.employee_id = $${i})`);
+      params.push(req.user.employee_id);
+      i++;
+    } else if (role === 'employee') {
+      where.push(`lr.employee_id = $${i++}`);
+      params.push(req.user.employee_id);
+    }
+
     const result = await db.query(`
       SELECT lr.*,
         lt.name as leave_type_name, lt.color, lt.is_paid,
@@ -146,6 +157,17 @@ router.put('/:id/approve', async (req, res) => {
 
     if (lr.status !== 'pending') return res.status(400).json({ error: 'Leave is not pending' });
 
+    // Team lead can only approve leaves of their team members or own leaves
+    if (req.user.role === 'team_lead') {
+      const empCheck = await db.query(
+        'SELECT id FROM employees WHERE id = $1 AND (manager_id = $2 OR id = $2)',
+        [lr.employee_id, req.user.employee_id]
+      );
+      if (empCheck.rows.length === 0) {
+        return res.status(403).json({ error: 'You can only approve leaves for your team members' });
+      }
+    }
+
     // Find reviewer employee
     const reviewer = await db.query('SELECT id FROM employees WHERE user_id = $1', [req.user.id]);
     const reviewerId = reviewer.rows.length > 0 ? reviewer.rows[0].id : null;
@@ -177,6 +199,17 @@ router.put('/:id/reject', async (req, res) => {
     const lr = leave.rows[0];
 
     if (lr.status !== 'pending') return res.status(400).json({ error: 'Leave is not pending' });
+
+    // Team lead can only reject leaves of their team members or own leaves
+    if (req.user.role === 'team_lead') {
+      const empCheck = await db.query(
+        'SELECT id FROM employees WHERE id = $1 AND (manager_id = $2 OR id = $2)',
+        [lr.employee_id, req.user.employee_id]
+      );
+      if (empCheck.rows.length === 0) {
+        return res.status(403).json({ error: 'You can only reject leaves for your team members' });
+      }
+    }
 
     const reviewer = await db.query('SELECT id FROM employees WHERE user_id = $1', [req.user.id]);
     const reviewerId = reviewer.rows.length > 0 ? reviewer.rows[0].id : null;

@@ -16,7 +16,7 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: CORS_ORIGIN
-        value: https://hris-frontend.onrender.com
+        value: https://hamza426eng.github.io
       - key: PORT
         value: 10000
 

@@ -28,7 +28,8 @@ export default function Login() {
   const demoAccounts = [
     { label: 'Admin', email: 'admin@company.com', role: 'Super Admin' },
     { label: 'HR', email: 'hr@company.com', role: 'HR Admin' },
-    { label: 'CEO', email: 'ceo@company.com', role: 'Manager' },
+    { label: 'Team Lead', email: 'ceo@company.com', role: 'Team Lead' },
+    { label: 'Employee', email: 'jane.smith@company.com', role: 'Employee' },
   ];
 
   return (
@@ -98,7 +99,7 @@ export default function Login() {
           {/* Demo accounts */}
           <div className="mt-6 pt-5 border-t border-oe-border">
             <p className="text-xs text-oe-muted mb-3 text-center">Demo accounts (password: <code className="bg-slate-100 px-1.5 py-0.5 rounded text-oe-text font-mono">password</code>)</p>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {demoAccounts.map(acc => (
                 <button
                   key={acc.email}

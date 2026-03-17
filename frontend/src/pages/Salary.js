@@ -3,11 +3,13 @@ import { salaryAPI, employeesAPI } from '../services/api';
 import Modal from '../components/Modal';
 import { Plus, DollarSign, TrendingUp, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
 const fmtCurrency = (n) => n ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n) : '-';
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '-';
 
 export default function Salary() {
+  const { user, permissions } = useAuth();
   const [salaries, setSalaries] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -24,13 +26,24 @@ export default function Salary() {
 
   const load = () => {
     setLoading(true);
-    salaryAPI.list().then(r => setSalaries(r.data)).catch(console.error).finally(() => setLoading(false));
+    if (permissions.canManageAll) {
+      salaryAPI.list().then(r => setSalaries(r.data)).catch(console.error).finally(() => setLoading(false));
+    } else {
+      // For team_lead/employee: fetch own salary via employee endpoint
+      if (user?.employeeId) {
+        employeesAPI.getSalary(user.employeeId).then(r => setSalaries(r.data)).catch(console.error).finally(() => setLoading(false));
+      } else {
+        setLoading(false);
+      }
+    }
   };
 
   useEffect(() => {
     load();
-    employeesAPI.list({ status: 'active' }).then(r => setEmployees(r.data.data)).catch(console.error);
-  }, []);
+    if (permissions.canManageAll) {
+      employeesAPI.list({ status: 'active' }).then(r => setEmployees(r.data.data)).catch(console.error);
+    }
+  }, [permissions.canManageAll]);
 
   const handleSave = async () => {
     if (!form.employee_id || !form.basic_salary) { alert('Employee and basic salary required'); return; }
@@ -58,6 +71,69 @@ export default function Salary() {
       <input type="number" step="0.01" min="0" className="input" value={form[name] || ''} onChange={e => setForm({ ...form, [name]: e.target.value })} placeholder="0.00" />
     </div>
   );
+
+  // Personal salary view for team_lead / employee
+  if (!permissions.canManageAll) {
+    const mySalary = salaries[0];
+    const earnings = mySalary ? [
+      { label: 'Basic Salary', value: mySalary.basic_salary },
+      { label: 'Housing Allowance', value: mySalary.housing_allowance },
+      { label: 'Transport Allowance', value: mySalary.transport_allowance },
+      { label: 'Meal Allowance', value: mySalary.meal_allowance },
+      { label: 'Medical Allowance', value: mySalary.medical_allowance },
+      { label: 'Mobile Allowance', value: mySalary.mobile_allowance },
+      { label: 'Other Allowances', value: mySalary.other_allowances },
+    ].filter(e => parseFloat(e.value) > 0) : [];
+    const deductions = mySalary ? [
+      { label: 'Tax', value: mySalary.tax_deduction },
+      { label: 'Pension', value: mySalary.pension_deduction },
+      { label: 'Health Insurance', value: mySalary.health_insurance },
+      { label: 'Other Deductions', value: mySalary.other_deductions },
+    ].filter(d => parseFloat(d.value) > 0) : [];
+
+    return (
+      <div className="space-y-5">
+        <h2 className="text-xl font-bold text-oe-text">My Salary</h2>
+        {loading ? (
+          <div className="text-center py-12 text-oe-muted">
+            <div className="w-6 h-6 border-2 border-oe-primary border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+            Loading...
+          </div>
+        ) : !mySalary ? (
+          <div className="card text-center py-12 text-oe-muted">No salary structure found</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div className="card space-y-3">
+              <h3 className="font-semibold text-oe-text text-sm">Earnings</h3>
+              {earnings.map(e => (
+                <div key={e.label} className="flex justify-between text-sm">
+                  <span className="text-oe-muted">{e.label}</span>
+                  <span className="font-medium text-oe-text">{fmtCurrency(e.value)}</span>
+                </div>
+              ))}
+              <div className="border-t border-oe-border pt-2 flex justify-between text-sm font-semibold">
+                <span className="text-oe-text">Gross Salary</span>
+                <span className="text-oe-success">{fmtCurrency(mySalary.gross_salary)}</span>
+              </div>
+            </div>
+            <div className="card space-y-3">
+              <h3 className="font-semibold text-oe-text text-sm">Deductions</h3>
+              {deductions.map(d => (
+                <div key={d.label} className="flex justify-between text-sm">
+                  <span className="text-oe-muted">{d.label}</span>
+                  <span className="font-medium text-oe-danger">-{fmtCurrency(d.value)}</span>
+                </div>
+              ))}
+              <div className="border-t border-oe-border pt-2 flex justify-between text-sm font-semibold">
+                <span className="text-oe-text">Net Salary</span>
+                <span className="text-oe-primary">{fmtCurrency(mySalary.net_salary)}</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">

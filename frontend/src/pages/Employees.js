@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { employeesAPI, departmentsAPI } from '../services/api';
 import Modal from '../components/Modal';
 import { Plus, Search, Filter, Download, Eye, Edit, UserX, Users } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 const EMPLOYMENT_TYPES = ['full_time', 'part_time', 'contract', 'intern', 'consultant'];
 const STATUSES = ['active', 'inactive', 'on_leave', 'terminated', 'probation'];
@@ -21,6 +22,7 @@ const initForm = {
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-';
 
 export default function Employees() {
+  const { user } = useAuth();
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [total, setTotal] = useState(0);
@@ -32,6 +34,15 @@ export default function Employees() {
   const [saving, setSaving] = useState(false);
   const [newEmpPassword, setNewEmpPassword] = useState('');
   const navigate = useNavigate();
+
+  const isHR = ['super_admin', 'hr_admin'].includes(user?.role);
+
+  // Employees redirect to their own profile
+  useEffect(() => {
+    if (user?.role === 'employee' && user?.employeeId) {
+      navigate(`/employees/${user.employeeId}`, { replace: true });
+    }
+  }, [user, navigate]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -143,7 +154,7 @@ export default function Employees() {
           {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
         </select>
         <button onClick={exportCSV} className="btn-secondary whitespace-nowrap"><Download size={15} /> Export</button>
-        <button onClick={openAdd} className="btn-primary whitespace-nowrap"><Plus size={15} /> Add Employee</button>
+        {isHR && <button onClick={openAdd} className="btn-primary whitespace-nowrap"><Plus size={15} /> Add Employee</button>}
       </div>
 
       {/* Table */}
@@ -179,8 +190,12 @@ export default function Employees() {
                 <tr key={emp.id} className="table-row cursor-pointer" onClick={() => navigate(`/employees/${emp.id}`)}>
                   <td className="table-cell">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 gradient-bg rounded-full flex items-center justify-center text-xs font-semibold text-white flex-shrink-0">
-                        {`${emp.first_name?.[0] || ''}${emp.last_name?.[0] || ''}`.toUpperCase()}
+                      <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 ring-1 ring-oe-border">
+                        <img
+                          src={emp.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(`${emp.first_name} ${emp.last_name}`)}&backgroundColor=1D6BE4,7C5CFC&backgroundType=gradientLinear&fontSize=36&fontWeight=600`}
+                          alt={`${emp.first_name} ${emp.last_name}`}
+                          className="w-full h-full object-cover"
+                        />
                       </div>
                       <div>
                         <div className="font-medium text-oe-text">{emp.first_name} {emp.last_name}</div>

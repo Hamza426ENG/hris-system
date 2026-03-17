@@ -5,7 +5,7 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Enums
-CREATE TYPE user_role AS ENUM ('super_admin', 'hr_admin', 'hr_manager', 'manager', 'employee');
+CREATE TYPE user_role AS ENUM ('super_admin', 'hr_admin', 'team_lead', 'employee');
 CREATE TYPE employee_status AS ENUM ('active', 'inactive', 'on_leave', 'terminated', 'probation');
 CREATE TYPE gender_type AS ENUM ('male', 'female', 'other', 'prefer_not_to_say');
 CREATE TYPE employment_type AS ENUM ('full_time', 'part_time', 'contract', 'intern', 'consultant');
@@ -383,8 +383,8 @@ INSERT INTO positions (id, title, code, department_id, level, grade, min_salary,
 INSERT INTO users (id, email, password_hash, role) VALUES
 ('33333333-3333-3333-3333-333333333001', 'admin@company.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'super_admin'),
 ('33333333-3333-3333-3333-333333333002', 'hr@company.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'hr_admin'),
-('33333333-3333-3333-3333-333333333003', 'ceo@company.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'manager'),
-('33333333-3333-3333-3333-333333333004', 'cto@company.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'manager'),
+('33333333-3333-3333-3333-333333333003', 'ceo@company.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'team_lead'),
+('33333333-3333-3333-3333-333333333004', 'cto@company.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'team_lead'),
 ('33333333-3333-3333-3333-333333333005', 'jane.smith@company.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'employee'),
 ('33333333-3333-3333-3333-333333333006', 'mike.johnson@company.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'employee'),
 ('33333333-3333-3333-3333-333333333007', 'sarah.wilson@company.com', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'employee'),

@@ -35,6 +35,21 @@ router.get('/', async (req, res) => {
     };
 
     const tree = buildTree(employees);
+
+    const role = req.user.role;
+    if (role === 'team_lead' || role === 'employee') {
+      const findSubtree = (nodes, employeeId) => {
+        for (const node of nodes) {
+          if (node.id === employeeId) return node;
+          const found = findSubtree(node.children || [], employeeId);
+          if (found) return found;
+        }
+        return null;
+      };
+      const subtreeNode = findSubtree(tree, req.user.employee_id);
+      return res.json({ tree: subtreeNode ? [subtreeNode] : [], all: employees });
+    }
+
     res.json({ tree, all: employees });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });

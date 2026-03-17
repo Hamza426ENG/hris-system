@@ -8,6 +8,15 @@ router.use(authenticate);
 // GET all salary structures
 router.get('/', async (req, res) => {
   try {
+    const role = req.user.role;
+    let whereClause = "WHERE e.status = 'active'";
+    let params = [];
+
+    if (role === 'team_lead' || role === 'employee') {
+      whereClause = "WHERE e.status = 'active' AND ss.employee_id = $1";
+      params = [req.user.employee_id];
+    }
+
     const result = await db.query(`
       SELECT ss.*,
         CONCAT(e.first_name, ' ', e.last_name) as employee_name,
@@ -18,9 +27,9 @@ router.get('/', async (req, res) => {
       JOIN employees e ON e.id = ss.employee_id
       LEFT JOIN departments d ON d.id = e.department_id
       LEFT JOIN positions p ON p.id = e.position_id
-      WHERE e.status = 'active'
+      ${whereClause}
       ORDER BY ss.effective_date DESC
-    `);
+    `, params);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -42,6 +51,9 @@ router.get('/employee/:employee_id', async (req, res) => {
 
 // POST create/update salary
 router.post('/', async (req, res) => {
+  if (!['super_admin', 'hr_admin'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Insufficient permissions' });
+  }
   try {
     const {
       employee_id, basic_salary, currency, pay_frequency, effective_date, end_date,

@@ -32,6 +32,7 @@ app.use('/api/organogram', require('./routes/organogram'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/announcements', require('./routes/announcements'));
+app.use('/api/admin', require('./routes/admin'));
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
