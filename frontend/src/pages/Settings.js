@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { departmentsAPI, positionsAPI, leavesAPI } from '../services/api';
+import { departmentsAPI, positionsAPI, leavesAPI, employeesAPI } from '../services/api';
 import Modal from '../components/Modal';
-import { Plus, Edit, Trash2, Building2, Briefcase, Calendar, Settings as SettingsIcon } from 'lucide-react';
+import { Plus, Edit, Trash2, Building2, Briefcase, Calendar, UserCheck } from 'lucide-react';
 
 const TABS = [
   { id: 'departments', label: 'Departments', icon: Building2 },
@@ -14,6 +14,8 @@ export default function Settings() {
   const [departments, setDepartments] = useState([]);
   const [positions, setPositions] = useState([]);
   const [leaveTypes, setLeaveTypes] = useState([]);
+  const [allEmployees, setAllEmployees] = useState([]);
+  const [deptEmployees, setDeptEmployees] = useState([]);
   const [modal, setModal] = useState(null);
   const [editItem, setEditItem] = useState(null);
   const [form, setForm] = useState({});
@@ -23,12 +25,30 @@ export default function Settings() {
     departmentsAPI.list().then(r => setDepartments(r.data)).catch(console.error);
     positionsAPI.list().then(r => setPositions(r.data)).catch(console.error);
     leavesAPI.types().then(r => setLeaveTypes(r.data)).catch(console.error);
+    employeesAPI.list({ status: 'active', limit: 200 }).then(r => setAllEmployees(r.data.data || [])).catch(console.error);
   };
 
   useEffect(() => { loadAll(); }, []);
 
-  const openAdd = () => { setEditItem(null); setForm({}); setModal(tab); };
-  const openEdit = (item) => { setEditItem(item); setForm({ ...item }); setModal(tab); };
+  // When dept modal opens, load employees in that department
+  const openAdd = () => {
+    setEditItem(null);
+    setForm({});
+    setDeptEmployees([]);
+    setModal(tab);
+  };
+
+  const openEdit = async (item) => {
+    setEditItem(item);
+    setForm({ ...item });
+    setModal(tab);
+    if (tab === 'departments') {
+      try {
+        const res = await employeesAPI.list({ department: item.id, status: 'active', limit: 200 });
+        setDeptEmployees(res.data.data || []);
+      } catch { setDeptEmployees([]); }
+    }
+  };
 
   const handleSaveDept = async () => {
     if (!form.name || !form.code) { alert('Name and code required'); return; }
@@ -77,14 +97,26 @@ export default function Settings() {
     </div>
   );
 
+  // Employees list for dept head dropdown:
+  // If editing: dept employees first, then remaining active employees
+  const headOptions = editItem
+    ? [
+        ...deptEmployees,
+        ...allEmployees.filter(e => !deptEmployees.find(d => d.id === e.id)),
+      ]
+    : allEmployees;
+
   return (
     <div className="space-y-5">
-      <div className="flex gap-1 bg-oe-surface rounded-xl p-1 w-fit">
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === t.id ? 'bg-oe-card text-oe-text shadow' : 'text-oe-muted hover:text-oe-text'}`}>
-            <t.icon size={14} />{t.label}
-          </button>
-        ))}
+      {/* Tabs */}
+      <div className="overflow-x-auto -mx-3 sm:mx-0 px-3 sm:px-0">
+        <div className="flex gap-1 bg-oe-surface rounded-xl p-1 w-max sm:w-fit">
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${tab === t.id ? 'bg-oe-card text-oe-text shadow' : 'text-oe-muted hover:text-oe-text'}`}>
+              <t.icon size={14} />{t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Departments */}
@@ -97,19 +129,22 @@ export default function Settings() {
             {departments.map(d => (
               <div key={d.id} className="card hover:border-oe-primary/30 transition-colors">
                 <div className="flex items-start justify-between mb-3">
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <div className="font-semibold text-oe-text">{d.name}</div>
                     <div className="text-xs text-oe-muted">{d.code} · {d.location || 'No location'}</div>
                   </div>
-                  <div className="flex gap-1">
-                    <button onClick={() => openEdit(d)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors"><Edit size={13} /></button>
-                    <button onClick={() => handleDelete('departments', d.id)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors"><Trash2 size={13} /></button>
+                  <div className="flex gap-1 flex-shrink-0 ml-2">
+                    <button onClick={() => openEdit(d)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"><Edit size={13} /></button>
+                    <button onClick={() => handleDelete('departments', d.id)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"><Trash2 size={13} /></button>
                   </div>
                 </div>
                 <div className="text-xs text-oe-muted">{d.description || 'No description'}</div>
                 <div className="flex items-center justify-between mt-3 pt-3 border-t border-oe-border/50">
-                  <span className="text-xs text-oe-muted">Head: {d.head_name || 'Unassigned'}</span>
-                  <span className="text-xs font-medium text-oe-text">{d.active_count || d.headcount || 0} employees</span>
+                  <div className="flex items-center gap-1.5">
+                    <UserCheck size={12} className={d.head_name ? 'text-oe-success' : 'text-oe-muted'} />
+                    <span className="text-xs text-oe-muted truncate max-w-[120px]">{d.head_name || 'No head assigned'}</span>
+                  </div>
+                  <span className="text-xs font-medium text-oe-text">{d.active_count || 0} employees</span>
                 </div>
               </div>
             ))}
@@ -123,7 +158,7 @@ export default function Settings() {
           <div className="flex justify-end">
             <button onClick={openAdd} className="btn-primary"><Plus size={15} /> Add Position</button>
           </div>
-          <div className="card p-0 overflow-hidden">
+          <div className="card p-0 overflow-hidden hidden md:block">
             <table className="w-full">
               <thead className="bg-oe-surface/50">
                 <tr>{['Title', 'Code', 'Department', 'Level', 'Grade', 'Salary Range', 'Headcount', 'Actions'].map(h => <th key={h} className="table-header">{h}</th>)}</tr>
@@ -151,6 +186,30 @@ export default function Settings() {
               </tbody>
             </table>
           </div>
+          <div className="md:hidden space-y-3">
+            {positions.map(p => (
+              <div key={p.id} className="bg-white border border-oe-border rounded-xl p-4">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-oe-text text-sm">{p.title}</div>
+                    <div className="text-xs text-oe-muted">{p.code} · {p.department_name || 'No dept'}</div>
+                  </div>
+                  <div className="flex gap-1 flex-shrink-0 ml-2">
+                    <button onClick={() => openEdit(p)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors"><Edit size={13} /></button>
+                    <button onClick={() => handleDelete('positions', p.id)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors"><Trash2 size={13} /></button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  {p.grade && <span className="px-1.5 py-0.5 bg-oe-surface rounded text-oe-muted">Grade: {p.grade}</span>}
+                  {p.level && <span className="px-1.5 py-0.5 bg-oe-surface rounded text-oe-muted">Level: {p.level}</span>}
+                  <span className="px-1.5 py-0.5 bg-oe-surface rounded text-oe-muted">{p.headcount || 0} staff</span>
+                  {p.min_salary && p.max_salary && (
+                    <span className="px-1.5 py-0.5 bg-oe-surface rounded text-oe-muted">${(p.min_salary/1000).toFixed(0)}k–${(p.max_salary/1000).toFixed(0)}k</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -164,11 +223,11 @@ export default function Settings() {
             {leaveTypes.map(lt => (
               <div key={lt.id} className="card hover:border-oe-primary/30 transition-colors">
                 <div className="flex items-start justify-between mb-2">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
                     <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: lt.color }} />
-                    <div className="font-semibold text-oe-text">{lt.name}</div>
+                    <div className="font-semibold text-oe-text truncate">{lt.name}</div>
                   </div>
-                  <button onClick={() => openEdit(lt)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors"><Edit size={13} /></button>
+                  <button onClick={() => openEdit(lt)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors flex-shrink-0 ml-2 min-h-[36px] min-w-[36px] flex items-center justify-center"><Edit size={13} /></button>
                 </div>
                 <div className="text-xs text-oe-muted mb-3">{lt.code} · {lt.description || 'No description'}</div>
                 <div className="flex flex-wrap gap-2 text-xs">
@@ -184,24 +243,66 @@ export default function Settings() {
 
       {/* Department Modal */}
       <Modal open={modal === 'departments'} onClose={() => setModal(null)} title={editItem ? 'Edit Department' : 'Add Department'} size="sm">
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="p-4 sm:p-6 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <F label="Department Name" name="name" required />
             <F label="Code" name="code" required />
           </div>
           <F label="Description" name="description" />
           <F label="Location" name="location" />
-          <div className="flex justify-end gap-3">
-            <button onClick={() => setModal(null)} className="btn-secondary">Cancel</button>
-            <button onClick={handleSaveDept} disabled={saving} className="btn-primary">{saving ? 'Saving...' : editItem ? 'Update' : 'Create'}</button>
+
+          {/* Head of Department */}
+          <div>
+            <label className="label flex items-center gap-1.5">
+              <UserCheck size={13} className="text-oe-purple" />
+              Head of Department
+            </label>
+            <select
+              className="input"
+              value={form.head_employee_id || ''}
+              onChange={e => setForm({ ...form, head_employee_id: e.target.value || null })}
+            >
+              <option value="">— Not assigned —</option>
+              {editItem && deptEmployees.length > 0 && (
+                <optgroup label={`${editItem.name} employees`}>
+                  {deptEmployees.map(e => (
+                    <option key={e.id} value={e.id}>
+                      {e.first_name} {e.last_name} · {e.position_title || 'No position'}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {headOptions.filter(e => !deptEmployees.find(d => d.id === e.id)).length > 0 && (
+                <optgroup label="Other employees">
+                  {headOptions.filter(e => !deptEmployees.find(d => d.id === e.id)).map(e => (
+                    <option key={e.id} value={e.id}>
+                      {e.first_name} {e.last_name} · {e.position_title || e.department_name || 'No position'}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {!editItem && headOptions.map(e => (
+                <option key={e.id} value={e.id}>
+                  {e.first_name} {e.last_name} · {e.position_title || 'No position'}
+                </option>
+              ))}
+            </select>
+            {editItem && deptEmployees.length === 0 && (
+              <p className="text-xs text-oe-muted mt-1">No active employees in this department yet.</p>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row justify-end gap-3">
+            <button onClick={() => setModal(null)} className="btn-secondary justify-center">Cancel</button>
+            <button onClick={handleSaveDept} disabled={saving} className="btn-primary justify-center">{saving ? 'Saving...' : editItem ? 'Update' : 'Create'}</button>
           </div>
         </div>
       </Modal>
 
       {/* Position Modal */}
       <Modal open={modal === 'positions'} onClose={() => setModal(null)} title={editItem ? 'Edit Position' : 'Add Position'} size="sm">
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="p-4 sm:p-6 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <F label="Title" name="title" required />
             <F label="Code" name="code" required />
             <div>
@@ -217,17 +318,17 @@ export default function Settings() {
             <F label="Min Salary" name="min_salary" type="number" />
             <F label="Max Salary" name="max_salary" type="number" />
           </div>
-          <div className="flex justify-end gap-3">
-            <button onClick={() => setModal(null)} className="btn-secondary">Cancel</button>
-            <button onClick={handleSavePosition} disabled={saving} className="btn-primary">{saving ? 'Saving...' : editItem ? 'Update' : 'Create'}</button>
+          <div className="flex flex-col sm:flex-row justify-end gap-3">
+            <button onClick={() => setModal(null)} className="btn-secondary justify-center">Cancel</button>
+            <button onClick={handleSavePosition} disabled={saving} className="btn-primary justify-center">{saving ? 'Saving...' : editItem ? 'Update' : 'Create'}</button>
           </div>
         </div>
       </Modal>
 
       {/* Leave Type Modal */}
       <Modal open={modal === 'leave_types'} onClose={() => setModal(null)} title={editItem ? 'Edit Leave Type' : 'Add Leave Type'} size="sm">
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="p-4 sm:p-6 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <F label="Name" name="name" required />
             <F label="Code" name="code" required />
             <F label="Days Allowed" name="days_allowed" type="number" />
@@ -237,19 +338,19 @@ export default function Settings() {
             </div>
           </div>
           <F label="Description" name="description" />
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2 text-sm text-oe-muted cursor-pointer">
+          <div className="flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 text-sm text-oe-muted cursor-pointer min-h-[44px]">
               <input type="checkbox" checked={form.is_paid !== false} onChange={e => setForm({ ...form, is_paid: e.target.checked })} />
               Paid Leave
             </label>
-            <label className="flex items-center gap-2 text-sm text-oe-muted cursor-pointer">
+            <label className="flex items-center gap-2 text-sm text-oe-muted cursor-pointer min-h-[44px]">
               <input type="checkbox" checked={!!form.carry_forward} onChange={e => setForm({ ...form, carry_forward: e.target.checked })} />
               Carry Forward
             </label>
           </div>
-          <div className="flex justify-end gap-3">
-            <button onClick={() => setModal(null)} className="btn-secondary">Cancel</button>
-            <button onClick={handleSaveLeaveType} disabled={saving} className="btn-primary">{saving ? 'Saving...' : editItem ? 'Update' : 'Create'}</button>
+          <div className="flex flex-col sm:flex-row justify-end gap-3">
+            <button onClick={() => setModal(null)} className="btn-secondary justify-center">Cancel</button>
+            <button onClick={handleSaveLeaveType} disabled={saving} className="btn-primary justify-center">{saving ? 'Saving...' : editItem ? 'Update' : 'Create'}</button>
           </div>
         </div>
       </Modal>
