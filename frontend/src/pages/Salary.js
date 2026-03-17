@@ -1,12 +1,122 @@
 import React, { useState, useEffect } from 'react';
 import { salaryAPI, employeesAPI } from '../services/api';
 import Modal from '../components/Modal';
-import { Plus, DollarSign, TrendingUp, Search } from 'lucide-react';
+import { Plus, Search, Download } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 const fmtCurrency = (n) => n ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n) : '-';
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '-';
+
+const downloadSalarySlip = (salary, employeeName) => {
+  const name = employeeName || salary.employee_name || 'Employee';
+  const period = fmtDate(salary.effective_date);
+  const allowances = [
+    ['Housing Allowance', salary.housing_allowance],
+    ['Transport Allowance', salary.transport_allowance],
+    ['Meal Allowance', salary.meal_allowance],
+    ['Medical Allowance', salary.medical_allowance],
+    ['Mobile Allowance', salary.mobile_allowance],
+    ['Other Allowances', salary.other_allowances],
+  ].filter(([, v]) => parseFloat(v) > 0);
+  const deductions = [
+    ['Tax', salary.tax_deduction],
+    ['Pension', salary.pension_deduction],
+    ['Health Insurance', salary.health_insurance],
+    ['Other Deductions', salary.other_deductions],
+  ].filter(([, v]) => parseFloat(v) > 0);
+
+  const row = (label, value, color = '#1e293b') =>
+    `<tr><td style="padding:7px 0;color:#64748b;font-size:13px">${label}</td><td style="padding:7px 0;text-align:right;font-weight:600;color:${color};font-size:13px">${fmtCurrency(value)}</td></tr>`;
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+  <title>Salary Slip – ${name}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',Inter,system-ui,sans-serif;background:#f8fafc;color:#1e293b;padding:32px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    @media print{body{padding:0}@page{margin:20mm}}
+    .slip{max-width:680px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)}
+    .header{background:linear-gradient(135deg,#1D6BE4,#7C3AED);padding:32px 36px;color:#fff}
+    .logo{font-size:22px;font-weight:800;letter-spacing:-0.5px;margin-bottom:4px}
+    .logo span{opacity:.7;font-weight:400}
+    .slip-title{font-size:13px;opacity:.85;margin-top:2px;text-transform:uppercase;letter-spacing:.08em}
+    .meta{display:flex;justify-content:space-between;align-items:flex-end;margin-top:20px}
+    .emp-name{font-size:20px;font-weight:700}
+    .emp-sub{font-size:12px;opacity:.8;margin-top:2px}
+    .period-badge{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:8px;padding:6px 14px;font-size:12px;font-weight:600;backdrop-filter:blur(4px)}
+    .body{padding:28px 36px}
+    .section{margin-bottom:24px}
+    .section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#94a3b8;border-bottom:1px solid #e2e8f0;padding-bottom:8px;margin-bottom:4px}
+    table{width:100%;border-collapse:collapse}
+    .totals{background:#f8fafc;border-radius:12px;padding:16px 20px;margin-top:24px;display:flex;gap:12px;justify-content:space-between;flex-wrap:wrap}
+    .total-box{flex:1;min-width:120px;text-align:center;padding:12px;background:#fff;border-radius:10px;border:1px solid #e2e8f0}
+    .total-box .label{font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+    .total-box .value{font-size:18px;font-weight:800}
+    .gross .value{color:#059669}
+    .deduct .value{color:#dc2626}
+    .net .value{color:#1D6BE4}
+    .footer{padding:16px 36px;border-top:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;background:#f8fafc}
+    .footer-note{font-size:11px;color:#94a3b8}
+    .footer-brand{font-size:11px;font-weight:700;color:#1D6BE4}
+    .print-btn{display:block;margin:24px auto 0;padding:10px 32px;background:linear-gradient(135deg,#1D6BE4,#7C3AED);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;letter-spacing:.02em}
+    @media print{.print-btn{display:none}}
+  </style></head><body>
+  <div class="slip">
+    <div class="header">
+      <div class="logo">One<span>Edge</span> <span style="font-size:14px;font-weight:500">HRIS</span></div>
+      <div class="slip-title">Official Salary Slip</div>
+      <div class="meta">
+        <div>
+          <div class="emp-name">${name}</div>
+          <div class="emp-sub">${salary.emp_code || ''} ${salary.department_name ? '· ' + salary.department_name : ''} ${salary.position_title ? '· ' + salary.position_title : ''}</div>
+        </div>
+        <div class="period-badge">Period: ${period}</div>
+      </div>
+    </div>
+    <div class="body">
+      <div class="section">
+        <div class="section-title">Earnings</div>
+        <table>
+          ${row('Basic Salary', salary.basic_salary)}
+          ${allowances.map(([l, v]) => row(l, v)).join('')}
+        </table>
+      </div>
+      ${deductions.length ? `<div class="section">
+        <div class="section-title">Deductions</div>
+        <table>${deductions.map(([l, v]) => row(l, v, '#dc2626')).join('')}</table>
+      </div>` : ''}
+      <div class="totals">
+        <div class="total-box gross"><div class="label">Gross Salary</div><div class="value">${fmtCurrency(salary.gross_salary)}</div></div>
+        <div class="total-box deduct"><div class="label">Total Deductions</div><div class="value">-${fmtCurrency(deductions.reduce((s,[,v])=>s+parseFloat(v||0),0))}</div></div>
+        <div class="total-box net"><div class="label">Net Salary</div><div class="value">${fmtCurrency(salary.net_salary)}</div></div>
+      </div>
+    </div>
+    <div class="footer">
+      <div class="footer-note">Generated on ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})} · Confidential</div>
+      <div class="footer-brand">OneEdge HRIS</div>
+    </div>
+  </div>
+  <button class="print-btn" onclick="window.print()">Download / Print PDF</button>
+  </body></html>`;
+
+  // Use a hidden iframe instead of window.open() to avoid popup blockers
+  let iframe = document.getElementById('_salary_print_frame');
+  if (!iframe) {
+    iframe = document.createElement('iframe');
+    iframe.id = '_salary_print_frame';
+    iframe.style.cssText = 'position:fixed;right:-9999px;bottom:0;width:1px;height:1px;border:0;opacity:0;';
+    document.body.appendChild(iframe);
+  }
+  const doc = iframe.contentDocument || iframe.contentWindow.document;
+  doc.open();
+  doc.write(html);
+  doc.close();
+  // Wait for content to render then print
+  setTimeout(() => {
+    iframe.contentWindow.focus();
+    iframe.contentWindow.print();
+  }, 400);
+};
 
 export default function Salary() {
   const { user, permissions } = useAuth();
@@ -93,7 +203,17 @@ export default function Salary() {
 
     return (
       <div className="space-y-5">
-        <h2 className="text-xl font-bold text-oe-text">My Salary</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold text-oe-text">My Salary</h2>
+          {mySalary && (
+            <button
+              onClick={() => downloadSalarySlip(mySalary, `${user?.firstName} ${user?.lastName}`)}
+              className="btn-secondary"
+            >
+              <Download size={15} /> Download Slip
+            </button>
+          )}
+        </div>
         {loading ? (
           <div className="text-center py-12 text-oe-muted">
             <div className="w-6 h-6 border-2 border-oe-primary border-t-transparent rounded-full animate-spin mx-auto mb-2" />
@@ -149,21 +269,21 @@ export default function Salary() {
       </div>
 
       {/* Toolbar */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
         <div className="relative flex-1">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-oe-muted" />
           <input className="input pl-9" placeholder="Search by name, ID, department..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
-        <button onClick={() => setModal(true)} className="btn-primary"><Plus size={15} /> Add Salary Structure</button>
+        <button onClick={() => setModal(true)} className="btn-primary justify-center sm:justify-start"><Plus size={15} /> Add Salary Structure</button>
       </div>
 
-      {/* Table */}
-      <div className="card p-0 overflow-hidden">
+      {/* Desktop table */}
+      <div className="card p-0 overflow-hidden hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-oe-surface/50">
               <tr>
-                {['Employee', 'Department', 'Position', 'Basic', 'Allowances', 'Gross', 'Deductions', 'Net', 'Since'].map(h => (
+                {['Employee', 'Department', 'Position', 'Basic', 'Allowances', 'Gross', 'Deductions', 'Net', 'Since', ''].map(h => (
                   <th key={h} className="table-header">{h}</th>
                 ))}
               </tr>
@@ -202,6 +322,15 @@ export default function Salary() {
                     <td className="table-cell text-oe-danger">-{fmtCurrency(deductions)}</td>
                     <td className="table-cell text-oe-primary font-semibold">{fmtCurrency(s.net_salary)}</td>
                     <td className="table-cell text-xs text-oe-muted">{fmtDate(s.effective_date)}</td>
+                    <td className="table-cell">
+                      <button
+                        onClick={e => { e.stopPropagation(); downloadSalarySlip(s); }}
+                        className="p-1.5 hover:bg-oe-surface rounded-lg text-oe-muted hover:text-oe-primary transition-colors"
+                        title="Download Salary Slip"
+                      >
+                        <Download size={14} />
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -210,9 +339,59 @@ export default function Salary() {
         </div>
       </div>
 
+      {/* Mobile card list */}
+      <div className="md:hidden space-y-3">
+        {loading ? (
+          <div className="text-center py-12 text-oe-muted">
+            <div className="w-6 h-6 border-2 border-oe-primary border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+            Loading...
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-12 text-oe-muted">No salary structures found</div>
+        ) : filtered.map(s => {
+          const allowances = (parseFloat(s.housing_allowance)||0) + (parseFloat(s.transport_allowance)||0) +
+            (parseFloat(s.meal_allowance)||0) + (parseFloat(s.medical_allowance)||0) +
+            (parseFloat(s.mobile_allowance)||0) + (parseFloat(s.other_allowances)||0);
+          const deductions = (parseFloat(s.tax_deduction)||0) + (parseFloat(s.pension_deduction)||0) +
+            (parseFloat(s.health_insurance)||0) + (parseFloat(s.other_deductions)||0);
+          return (
+            <div
+              key={s.id}
+              className="bg-white border border-oe-border rounded-xl p-4 cursor-pointer hover:border-oe-primary/30 transition-colors"
+              onClick={() => navigate(`/employees/${s.employee_id}`)}
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-9 h-9 gradient-bg rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+                  {s.employee_name?.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-oe-text truncate">{s.employee_name}</div>
+                  <div className="text-xs text-oe-muted">{s.emp_code} · {s.department_name}</div>
+                </div>
+                <div className="text-xs text-oe-muted flex-shrink-0">{fmtDate(s.effective_date)}</div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="bg-slate-50 rounded-lg p-2">
+                  <div className="text-xs text-oe-muted mb-0.5">Gross</div>
+                  <div className="text-sm font-semibold text-oe-success">{fmtCurrency(s.gross_salary)}</div>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-2">
+                  <div className="text-xs text-oe-muted mb-0.5">Deductions</div>
+                  <div className="text-sm font-semibold text-oe-danger">-{fmtCurrency(deductions)}</div>
+                </div>
+                <div className="bg-slate-50 rounded-lg p-2">
+                  <div className="text-xs text-oe-muted mb-0.5">Net</div>
+                  <div className="text-sm font-semibold text-oe-primary">{fmtCurrency(s.net_salary)}</div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
       {/* Add Modal */}
       <Modal open={modal} onClose={() => setModal(false)} title="Add Salary Structure" size="md">
-        <div className="p-6 space-y-4">
+        <div className="p-4 sm:p-6 space-y-4">
           <div>
             <label className="label">Employee *</label>
             <select className="input" value={form.employee_id} onChange={e => setForm({ ...form, employee_id: e.target.value })}>
@@ -220,7 +399,7 @@ export default function Salary() {
               {employees.map(e => <option key={e.id} value={e.id}>{e.first_name} {e.last_name} ({e.employee_id})</option>)}
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">Effective Date *</label>
               <input type="date" className="input" value={form.effective_date} onChange={e => setForm({ ...form, effective_date: e.target.value })} />
@@ -235,7 +414,7 @@ export default function Salary() {
 
           <div>
             <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider mb-2">Earnings</h4>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Basic Salary *" name="basic_salary" />
               <Field label="Housing Allowance" name="housing_allowance" />
               <Field label="Transport Allowance" name="transport_allowance" />
@@ -248,7 +427,7 @@ export default function Salary() {
 
           <div>
             <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider mb-2">Deductions</h4>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Tax" name="tax_deduction" />
               <Field label="Pension" name="pension_deduction" />
               <Field label="Health Insurance" name="health_insurance" />
@@ -261,9 +440,9 @@ export default function Salary() {
             <textarea className="input" rows={2} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
           </div>
 
-          <div className="flex justify-end gap-3">
-            <button onClick={() => setModal(false)} className="btn-secondary">Cancel</button>
-            <button onClick={handleSave} disabled={saving} className="btn-primary">
+          <div className="flex flex-col sm:flex-row justify-end gap-3">
+            <button onClick={() => setModal(false)} className="btn-secondary justify-center">Cancel</button>
+            <button onClick={handleSave} disabled={saving} className="btn-primary justify-center">
               {saving ? 'Saving...' : 'Save Salary Structure'}
             </button>
           </div>

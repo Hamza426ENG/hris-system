@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { dashboardAPI } from '../services/api';
-import { Users, Calendar, Clock, Building2, TrendingUp, DollarSign, Gift, ChevronRight, AlertCircle } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
+import { dashboardAPI, employeesAPI } from '../services/api';
+import { Users, Calendar, Clock, Building2, TrendingUp, DollarSign, Gift, ChevronRight, X } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import Modal from '../components/Modal';
 
 const COLORS = ['#1D6BE4', '#7C5CFC', '#00D4FF', '#00D4AA', '#F5A623', '#FF4D6D'];
 
@@ -32,10 +33,24 @@ const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'sho
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [deptModal, setDeptModal] = useState(null); // { id, name, code }
+  const [deptEmployees, setDeptEmployees] = useState([]);
+  const [deptLoading, setDeptLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     dashboardAPI.stats().then(res => setData(res.data)).catch(console.error).finally(() => setLoading(false));
+  }, []);
+
+  const handleBarClick = useCallback(async (barData) => {
+    if (!barData?.id) return;
+    setDeptModal({ id: barData.id, name: barData.name, code: barData.code, count: barData.actual_count });
+    setDeptLoading(true);
+    try {
+      const res = await employeesAPI.list({ department: barData.id, status: 'active' });
+      setDeptEmployees(res.data.data || []);
+    } catch { setDeptEmployees([]); }
+    finally { setDeptLoading(false); }
   }, []);
 
   if (loading) return (
@@ -73,17 +88,20 @@ export default function Dashboard() {
         {/* Department Headcount */}
         <div className="card lg:col-span-2">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-oe-text">Department Headcount</h3>
+            <div>
+              <h3 className="font-semibold text-oe-text">Department Headcount</h3>
+              <p className="text-xs text-oe-muted mt-0.5">Click a bar to see employees</p>
+            </div>
             <button onClick={() => navigate('/reports')} className="text-xs text-oe-primary hover:underline flex items-center gap-1">
               View Report <ChevronRight size={12} />
             </button>
           </div>
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={deptHeadcount?.slice(0, 7)} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+            <BarChart data={deptHeadcount?.slice(0, 7)} margin={{ top: 0, right: 0, left: -20, bottom: 0 }} style={{ cursor: 'pointer' }}>
               <XAxis dataKey="code" tick={{ fill: '#6B8DB5', fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: '#6B8DB5', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ background: '#111827', border: '1px solid #1E3A5F', borderRadius: 8, color: '#E8F0FE' }} />
-              <Bar dataKey="actual_count" fill="#1D6BE4" radius={[4, 4, 0, 0]} name="Employees" />
+              <Tooltip contentStyle={{ background: '#111827', border: '1px solid #1E3A5F', borderRadius: 8, color: '#E8F0FE' }} cursor={{ fill: 'rgba(29,107,228,0.08)' }} />
+              <Bar dataKey="actual_count" fill="#1D6BE4" radius={[4, 4, 0, 0]} name="Employees" onClick={(data) => handleBarClick(data)} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -189,6 +207,50 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Department employees modal */}
+      <Modal open={!!deptModal} onClose={() => setDeptModal(null)} title={deptModal ? `${deptModal.name} — ${deptModal.count} Employees` : ''} size="md">
+        <div className="p-0">
+          {deptLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="w-6 h-6 border-2 border-oe-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : deptEmployees.length === 0 ? (
+            <div className="text-center py-12 text-oe-muted text-sm">No active employees in this department</div>
+          ) : (
+            <div className="divide-y divide-oe-border max-h-[60vh] overflow-y-auto">
+              {deptEmployees.map(emp => (
+                <div
+                  key={emp.id}
+                  className="flex items-center gap-3 px-5 py-3 hover:bg-oe-surface cursor-pointer transition-colors"
+                  onClick={() => { navigate(`/employees/${emp.id}`); setDeptModal(null); }}
+                >
+                  <img
+                    src={emp.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(`${emp.first_name} ${emp.last_name}`)}&backgroundColor=1D6BE4,7C5CFC&backgroundType=gradientLinear&fontSize=36&fontWeight=600`}
+                    alt={`${emp.first_name} ${emp.last_name}`}
+                    className="w-9 h-9 rounded-full object-cover ring-1 ring-oe-border flex-shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-oe-text truncate">{emp.first_name} {emp.last_name}</div>
+                    <div className="text-xs text-oe-muted truncate">{emp.position_title || '—'} · {emp.employee_id}</div>
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${emp.status === 'active' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500'}`}>
+                    {emp.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="px-5 py-3 border-t border-oe-border bg-oe-surface/40 flex justify-end">
+            <button
+              onClick={() => { navigate(`/employees?department=${deptModal?.id}`); setDeptModal(null); }}
+              className="btn-primary text-sm"
+            >
+              View All in Employees <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

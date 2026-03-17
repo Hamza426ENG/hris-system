@@ -161,6 +161,76 @@ router.post('/', async (req, res) => {
   }
 });
 
+// POST /api/employees/bulk  — must be before /:id
+router.post('/bulk', async (req, res) => {
+  if (!['super_admin', 'hr_admin'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Only HR/Admin can bulk import' });
+  }
+  const { employees: rows } = req.body;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return res.status(400).json({ error: 'No employee records provided' });
+  }
+
+  const created = [];
+  const errors = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    try {
+      const { first_name, last_name, work_email, personal_email, phone_primary,
+        hire_date, employment_type, status, work_location, gender, nationality,
+        national_id, city, state, country } = row;
+
+      if (!first_name || !last_name || !hire_date) {
+        errors.push({ row: i + 1, error: 'first_name, last_name and hire_date are required' });
+        continue;
+      }
+
+      const countResult = await db.query('SELECT COUNT(*) FROM employees');
+      const empNum = String(parseInt(countResult.rows[0].count) + created.length + 1).padStart(4, '0');
+      const employee_id = `EMP${empNum}`;
+
+      const tempPassword = 'Welcome@123';
+      const hash = await bcrypt.hash(tempPassword, 10);
+      const email = work_email || personal_email;
+      if (!email) { errors.push({ row: i + 1, error: 'work_email or personal_email required' }); continue; }
+
+      const userResult = await db.query(
+        'INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3) RETURNING id',
+        [email, hash, 'employee']
+      );
+
+      const empResult = await db.query(`
+        INSERT INTO employees (user_id, employee_id, first_name, last_name, work_email, personal_email,
+          phone_primary, hire_date, employment_type, status, work_location, gender, nationality,
+          national_id, city, state, country, created_by)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id, employee_id
+      `, [
+        userResult.rows[0].id, employee_id, first_name, last_name,
+        work_email || null, personal_email || null, phone_primary || null,
+        hire_date, employment_type || 'full_time', status || 'active',
+        work_location || null, gender || null, nationality || null,
+        national_id || null, city || null, state || null, country || 'USA', req.user.id,
+      ]);
+
+      // Leave balances
+      const year = new Date().getFullYear();
+      const leaveTypes = await db.query('SELECT id, days_allowed FROM leave_types WHERE is_active = TRUE');
+      for (const lt of leaveTypes.rows) {
+        await db.query(
+          'INSERT INTO leave_balances (employee_id, leave_type_id, year, allocated_days) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING',
+          [empResult.rows[0].id, lt.id, year, lt.days_allowed]
+        );
+      }
+      created.push(empResult.rows[0]);
+    } catch (err) {
+      errors.push({ row: i + 1, error: err.message });
+    }
+  }
+
+  res.status(201).json({ created: created.length, errors, total: rows.length });
+});
+
 // PUT /api/employees/:id
 router.put('/:id', async (req, res) => {
   try {

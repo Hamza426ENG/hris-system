@@ -34,6 +34,7 @@ export const employeesAPI = {
   list: (params) => api.get('/employees', { params }),
   get: (id) => api.get(`/employees/${id}`),
   create: (data) => api.post('/employees', data),
+  bulkImport: (employees) => api.post('/employees/bulk', { employees }),
   update: (id, data) => api.put(`/employees/${id}`, data),
   delete: (id) => api.delete(`/employees/${id}`),
   updateAvatar: (id, avatar_url) => api.put(`/employees/${id}/avatar`, { avatar_url }),
