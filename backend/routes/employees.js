@@ -82,17 +82,12 @@ router.get('/:id', async (req, res) => {
     const role = req.user.role;
     const empId = req.user.employee_id;
 
-    // Team lead: can only view their own profile or their direct reports
-    if (role === 'team_lead' && empId) {
-      const allowed = await db.query(
-        'SELECT id FROM employees WHERE (manager_id = $1 OR id = $1) AND id = $2',
-        [empId, req.params.id]
-      );
-      if (allowed.rows.length === 0) return res.status(403).json({ error: 'Access denied.' });
-    }
-    // Employee: can only view their own profile
-    if (role === 'employee' && empId !== req.params.id) {
-      return res.status(403).json({ error: 'Access denied.' });
+    // Only HR and super admin can view any employee profile
+    if (!['super_admin', 'hr_admin'].includes(role)) {
+      // Employees can only view their own profile
+      if (empId !== req.params.id) {
+        return res.status(403).json({ error: 'Access denied.' });
+      }
     }
 
     const result = await db.query(`

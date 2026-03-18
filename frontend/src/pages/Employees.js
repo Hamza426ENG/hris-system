@@ -430,7 +430,7 @@ export default function Employees() {
               ) : employees.length === 0 ? (
                 <tr><td colSpan={7} className="text-center py-12 text-oe-muted">No employees found</td></tr>
               ) : employees.map(emp => (
-                <tr key={emp.id} className="table-row cursor-pointer" onClick={() => navigate(`/employees/${emp.id}`)}>
+                <tr key={emp.id} className={`table-row ${isHR ? 'cursor-pointer' : ''}`} onClick={() => isHR && navigate(`/employees/${emp.id}`)}>
                   <td className="table-cell">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 ring-1 ring-oe-border">
@@ -452,17 +452,19 @@ export default function Employees() {
                   <td className="table-cell text-oe-muted text-xs">{fmtDate(emp.hire_date)}</td>
                   <td className="table-cell">{statusBadge(emp.status)}</td>
                   <td className="table-cell">
-                    <div className="flex items-center gap-1">
-                      <button onClick={e => { e.stopPropagation(); navigate(`/employees/${emp.id}`); }} className="p-1.5 hover:bg-oe-surface rounded-lg text-oe-muted hover:text-oe-text transition-colors" title="View">
-                        <Eye size={14} />
-                      </button>
-                      <button onClick={(e) => openEdit(emp, e)} className="p-1.5 hover:bg-oe-surface rounded-lg text-oe-muted hover:text-oe-primary transition-colors" title="Edit">
-                        <Edit size={14} />
-                      </button>
-                      <button onClick={(e) => handleDeactivate(emp.id, e)} className="p-1.5 hover:bg-oe-surface rounded-lg text-oe-muted hover:text-oe-danger transition-colors" title="Deactivate">
-                        <UserX size={14} />
-                      </button>
-                    </div>
+                    {isHR ? (
+                      <div className="flex items-center gap-1">
+                        <button onClick={e => { e.stopPropagation(); navigate(`/employees/${emp.id}`); }} className="p-1.5 hover:bg-oe-surface rounded-lg text-oe-muted hover:text-oe-text transition-colors" title="View">
+                          <Eye size={14} />
+                        </button>
+                        <button onClick={(e) => openEdit(emp, e)} className="p-1.5 hover:bg-oe-surface rounded-lg text-oe-muted hover:text-oe-primary transition-colors" title="Edit">
+                          <Edit size={14} />
+                        </button>
+                        <button onClick={(e) => handleDeactivate(emp.id, e)} className="p-1.5 hover:bg-oe-surface rounded-lg text-oe-muted hover:text-oe-danger transition-colors" title="Deactivate">
+                          <UserX size={14} />
+                        </button>
+                      </div>
+                    ) : <span className="text-xs text-oe-muted">—</span>}
                   </td>
                 </tr>
               ))}
@@ -484,8 +486,8 @@ export default function Employees() {
               {employees.map(emp => (
                 <div
                   key={emp.id}
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 cursor-pointer"
-                  onClick={() => navigate(`/employees/${emp.id}`)}
+                  className={`flex items-center gap-3 px-4 py-3 ${isHR ? 'hover:bg-slate-50 cursor-pointer' : ''}`}
+                  onClick={() => isHR && navigate(`/employees/${emp.id}`)}
                 >
                   <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 ring-1 ring-oe-border">
                     <img

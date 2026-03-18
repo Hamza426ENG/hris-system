@@ -196,10 +196,7 @@ export default function TeamLeadDashboard() {
                           ) : <span className="text-oe-muted text-xs">—</span>}
                         </td>
                         <td className="table-cell">
-                          <button onClick={() => navigate(`/employees/${m.id}`)}
-                            className="text-oe-primary hover:underline text-xs font-medium">
-                            View Profile
-                          </button>
+                          <span className="text-xs text-oe-muted">—</span>
                         </td>
                       </tr>
                     ))}
@@ -210,7 +207,7 @@ export default function TeamLeadDashboard() {
               {/* Mobile cards */}
               <div className="md:hidden space-y-3">
                 {members.map(m => (
-                  <div key={m.id} className="card p-4 flex items-center gap-3" onClick={() => navigate(`/employees/${m.id}`)}>
+                  <div key={m.id} className="card p-4 flex items-center gap-3">
                     <Avatar src={m.avatar_url} firstName={m.first_name} lastName={m.last_name} size={44} />
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-oe-text">{m.first_name} {m.last_name}</div>
@@ -384,7 +381,7 @@ export default function TeamLeadDashboard() {
             {recentHires.length === 0 ? (
               <p className="text-sm text-oe-muted text-center py-4">No new hires recently.</p>
             ) : recentHires.map(e => (
-              <div key={e.id} className="flex items-center gap-3 cursor-pointer hover:bg-oe-surface rounded-lg p-1.5 -mx-1.5 transition-colors" onClick={() => navigate(`/employees/${e.id}`)}>
+              <div key={e.id} className="flex items-center gap-3 rounded-lg p-1.5 -mx-1.5">
                 <Avatar src={e.avatar_url} firstName={e.first_name} lastName={e.last_name} size={36} />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-oe-text">{e.first_name} {e.last_name}</div>
