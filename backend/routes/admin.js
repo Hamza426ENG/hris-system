@@ -104,7 +104,7 @@ router.post('/users', async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10);
     const userRes = await db.query(
-      'INSERT INTO users (email, password, role, is_active) VALUES ($1, $2, $3, true) RETURNING id, email, role, is_active, created_at',
+      'INSERT INTO users (email, password_hash, role, is_active) VALUES ($1, $2, $3, true) RETURNING id, email, role, is_active, created_at',
       [email.toLowerCase(), hash, role]
     );
     const newUser = userRes.rows[0];
