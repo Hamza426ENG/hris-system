@@ -92,3 +92,143 @@ router.get('/stats', async (req, res) => {
 });
 
 module.exports = router;
+
+// GET /api/dashboard/team-stats — team lead's team data only
+router.get('/team-stats', async (req, res) => {
+  try {
+    const empId = req.user.employee_id;
+    if (!empId) return res.status(400).json({ error: 'No employee record linked.' });
+
+    const [
+      selfInfo, teamMembers, pendingLeaves, leaveBalanceSummary,
+      todayAttendance, upcomingBirthdays, recentHires, leaveSummary
+    ] = await Promise.all([
+
+      // Team lead's own info + department
+      db.query(`
+        SELECT e.*, d.name as department_name, d.code as department_code,
+          d.id as dept_id, p.title as position_title,
+          CONCAT(m.first_name,' ',m.last_name) as manager_name,
+          m.avatar_url as manager_avatar, m.id as manager_id,
+          (SELECT COUNT(*) FROM employees WHERE manager_id = e.id AND status='active') as direct_reports,
+          (SELECT CONCAT(h.first_name,' ',h.last_name) FROM employees h WHERE h.id = d.head_employee_id) as dept_head_name,
+          (SELECT h.avatar_url FROM employees h WHERE h.id = d.head_employee_id) as dept_head_avatar,
+          (SELECT COUNT(*) FROM employees WHERE department_id = e.department_id AND status='active') as dept_headcount
+        FROM employees e
+        LEFT JOIN departments d ON d.id = e.department_id
+        LEFT JOIN positions p ON p.id = e.position_id
+        LEFT JOIN employees m ON m.id = e.manager_id
+        WHERE e.id = $1
+      `, [empId]),
+
+      // Direct reports
+      db.query(`
+        SELECT e.id, e.employee_id, e.first_name, e.last_name, e.avatar_url,
+          e.status, e.hire_date, e.employment_type,
+          d.name as department_name, p.title as position_title,
+          p.grade,
+          (SELECT COUNT(*) FROM leave_requests WHERE employee_id=e.id AND status='pending') as pending_leaves,
+          (SELECT check_in FROM attendance WHERE employee_id=e.id AND date=CURRENT_DATE) as checkin_today,
+          (SELECT check_out FROM attendance WHERE employee_id=e.id AND date=CURRENT_DATE) as checkout_today
+        FROM employees e
+        LEFT JOIN departments d ON d.id = e.department_id
+        LEFT JOIN positions p ON p.id = e.position_id
+        WHERE e.manager_id = $1
+        ORDER BY e.first_name, e.last_name
+      `, [empId]),
+
+      // Pending leave requests from team
+      db.query(`
+        SELECT lr.*, lt.name as leave_type_name,
+          CONCAT(e.first_name,' ',e.last_name) as employee_name,
+          e.avatar_url, e.employee_id as emp_code
+        FROM leave_requests lr
+        JOIN employees e ON e.id = lr.employee_id
+        JOIN leave_types lt ON lt.id = lr.leave_type_id
+        WHERE e.manager_id = $1 AND lr.status = 'pending'
+        ORDER BY lr.created_at ASC
+      `, [empId]),
+
+      // Leave balance summary for team
+      db.query(`
+        SELECT lt.name as leave_type,
+          ROUND(AVG(lb.remaining_days),1) as avg_remaining,
+          SUM(lb.used_days) as total_used,
+          COUNT(lb.id) as member_count
+        FROM leave_balances lb
+        JOIN leave_types lt ON lt.id = lb.leave_type_id
+        JOIN employees e ON e.id = lb.employee_id
+        WHERE e.manager_id = $1 AND lb.year = EXTRACT(YEAR FROM NOW())
+        GROUP BY lt.id, lt.name ORDER BY total_used DESC LIMIT 5
+      `, [empId]),
+
+      // Today's attendance for team
+      db.query(`
+        SELECT e.id, e.first_name, e.last_name, e.avatar_url,
+          a.check_in, a.check_out, a.hours_worked, a.status as att_status
+        FROM employees e
+        LEFT JOIN attendance a ON a.employee_id=e.id AND a.date=CURRENT_DATE
+        WHERE e.manager_id = $1 AND e.status='active'
+        ORDER BY e.first_name
+      `, [empId]),
+
+      // Upcoming birthdays in team
+      db.query(`
+        SELECT id, first_name, last_name, avatar_url, date_of_birth
+        FROM employees
+        WHERE manager_id = $1 AND status='active'
+          AND date_of_birth IS NOT NULL
+          AND TO_CHAR(date_of_birth,'MM-DD') BETWEEN TO_CHAR(NOW(),'MM-DD')
+          AND TO_CHAR(NOW() + INTERVAL '30 days','MM-DD')
+        ORDER BY TO_CHAR(date_of_birth,'MM-DD') LIMIT 5
+      `, [empId]),
+
+      // Recent hires in team (last 60 days)
+      db.query(`
+        SELECT e.id, e.first_name, e.last_name, e.avatar_url, e.hire_date,
+          p.title as position_title
+        FROM employees e
+        LEFT JOIN positions p ON p.id = e.position_id
+        WHERE e.manager_id = $1 AND e.hire_date >= NOW() - INTERVAL '60 days'
+        ORDER BY e.hire_date DESC LIMIT 5
+      `, [empId]),
+
+      // Leave requests history for team (recent)
+      db.query(`
+        SELECT lr.id, lr.status, lr.start_date, lr.end_date, lr.total_days,
+          lt.name as leave_type_name,
+          CONCAT(e.first_name,' ',e.last_name) as employee_name,
+          e.avatar_url
+        FROM leave_requests lr
+        JOIN employees e ON e.id = lr.employee_id
+        JOIN leave_types lt ON lt.id = lr.leave_type_id
+        WHERE e.manager_id = $1
+        ORDER BY lr.created_at DESC LIMIT 10
+      `, [empId]),
+    ]);
+
+    const self = selfInfo.rows[0];
+    const members = teamMembers.rows;
+
+    res.json({
+      self,
+      team: {
+        total: members.length,
+        active: members.filter(m => m.status === 'active').length,
+        onLeave: members.filter(m => m.status === 'on_leave').length,
+        checkedInToday: members.filter(m => m.checkin_today).length,
+        pendingLeaveCount: pendingLeaves.rows.length,
+      },
+      members,
+      pendingLeaves: pendingLeaves.rows,
+      leaveBalanceSummary: leaveBalanceSummary.rows,
+      todayAttendance: todayAttendance.rows,
+      upcomingBirthdays: upcomingBirthdays.rows,
+      recentHires: recentHires.rows,
+      leaveSummary: leaveSummary.rows,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});

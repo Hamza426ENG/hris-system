@@ -128,3 +128,7 @@ export const widgetsAPI = {
   get: () => api.get('/widgets'),
   update: (changes) => api.put('/widgets', { changes }),
 };
+
+export const teamAPI = {
+  stats: () => api.get('/dashboard/team-stats'),
+};

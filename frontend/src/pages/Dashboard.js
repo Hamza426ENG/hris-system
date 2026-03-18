@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import EmployeeDashboard from './EmployeeDashboard';
+import TeamLeadDashboard from './TeamLeadDashboard';
 import { useNavigate } from 'react-router-dom';
 import { dashboardAPI, employeesAPI } from '../services/api';
 import { Users, Calendar, Clock, Building2, TrendingUp, DollarSign, Gift, ChevronRight } from 'lucide-react';
@@ -260,5 +261,6 @@ function HRDashboard() {
 export default function Dashboard() {
   const { user } = useAuth();
   if (user?.role === 'employee') return <EmployeeDashboard />;
+  if (user?.role === 'team_lead') return <TeamLeadDashboard />;
   return <HRDashboard />;
 }
