@@ -117,7 +117,7 @@ CREATE TABLE employees (
     work_location VARCHAR(100),
 
     -- Profile
-    avatar_url VARCHAR(500),
+    avatar_url TEXT,
     bio TEXT,
     skills TEXT[],
     languages TEXT[],
@@ -491,3 +491,55 @@ CREATE TRIGGER update_employees_updated_at BEFORE UPDATE ON employees FOR EACH R
 CREATE TRIGGER update_leave_requests_updated_at BEFORE UPDATE ON leave_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_salary_structures_updated_at BEFORE UPDATE ON salary_structures FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_payroll_runs_updated_at BEFORE UPDATE ON payroll_runs FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+-- WIDGET SETTINGS
+-- ============================================================
+CREATE TABLE IF NOT EXISTS widget_settings (
+    id SERIAL PRIMARY KEY,
+    widget_key VARCHAR(50) NOT NULL,
+    role VARCHAR(20) NOT NULL,
+    is_visible BOOLEAN DEFAULT TRUE,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(widget_key, role)
+);
+
+-- Default widget visibility
+INSERT INTO widget_settings (widget_key, role, is_visible) VALUES
+  ('profile_summary',  'employee',    true),
+  ('profile_summary',  'team_lead',   true),
+  ('profile_summary',  'hr_admin',    true),
+  ('profile_summary',  'super_admin', true),
+  ('attendance',       'employee',    true),
+  ('attendance',       'team_lead',   true),
+  ('attendance',       'hr_admin',    true),
+  ('attendance',       'super_admin', true),
+  ('leave_summary',    'employee',    true),
+  ('leave_summary',    'team_lead',   true),
+  ('leave_summary',    'hr_admin',    true),
+  ('leave_summary',    'super_admin', true),
+  ('team_members',     'employee',    true),
+  ('team_members',     'team_lead',   true),
+  ('team_members',     'hr_admin',    true),
+  ('team_members',     'super_admin', true),
+  ('org_structure',    'employee',    true),
+  ('org_structure',    'team_lead',   true),
+  ('org_structure',    'hr_admin',    true),
+  ('org_structure',    'super_admin', true),
+  ('announcements',    'employee',    true),
+  ('announcements',    'team_lead',   true),
+  ('announcements',    'hr_admin',    true),
+  ('announcements',    'super_admin', true),
+  ('payroll_summary',  'employee',    false),
+  ('payroll_summary',  'team_lead',   true),
+  ('payroll_summary',  'hr_admin',    true),
+  ('payroll_summary',  'super_admin', true),
+  ('headcount_chart',  'employee',    false),
+  ('headcount_chart',  'team_lead',   false),
+  ('headcount_chart',  'hr_admin',    true),
+  ('headcount_chart',  'super_admin', true),
+  ('recent_activity',  'employee',    false),
+  ('recent_activity',  'team_lead',   false),
+  ('recent_activity',  'hr_admin',    true),
+  ('recent_activity',  'super_admin', true)
+ON CONFLICT (widget_key, role) DO NOTHING;

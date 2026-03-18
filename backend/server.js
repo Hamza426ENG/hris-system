@@ -2,11 +2,13 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const migrate = require('./migrate');
+const migrateWidgets = require('./migrate-widgets');
 
 const app = express();
 
 // Run DB migration on startup
 migrate().catch(console.error);
+migrateWidgets().catch(console.error);
 
 // Middleware
 app.use(cors({
@@ -33,7 +35,9 @@ app.use('/api/reports', require('./routes/reports'));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/announcements', require('./routes/announcements'));
 app.use('/api/admin', require('./routes/admin'));
-app.use('/api/chat', require('./routes/chat'));
+app.use("/api/chat", require("./routes/chat"));
+app.use("/api/attendance", require("./routes/attendance"));
+app.use("/api/widgets", require("./routes/widgets"));
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));

@@ -1,10 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { adminAPI, employeesAPI } from '../services/api';
+import { adminAPI, employeesAPI, widgetsAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import Avatar from '../components/Avatar';
 import Modal from '../components/Modal';
-import { ShieldCheck, ToggleLeft, ToggleRight, UserPlus, Eye, EyeOff } from 'lucide-react';
+import { ShieldCheck, ToggleLeft, ToggleRight, UserPlus, Eye, EyeOff, LayoutDashboard, Save } from 'lucide-react';
+
+const ADMIN_TABS = [
+  { id: 'users', label: 'Users & Roles', icon: ShieldCheck },
+  { id: 'widgets', label: 'Dashboard Widgets', icon: LayoutDashboard },
+];
 
 const ROLE_OPTIONS = [
   { value: 'super_admin', label: 'Super Admin' },
@@ -20,6 +25,7 @@ const EMPTY_FORM = { email: '', password: '', confirm_password: '', role: 'emplo
 export default function Admin() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState('users');
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(null);
@@ -29,9 +35,14 @@ export default function Admin() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [employees, setEmployees] = useState([]);
+  // Widget settings state
+  const [widgetDefs, setWidgetDefs] = useState([]);
+  const [widgetMatrix, setWidgetMatrix] = useState({});
+  const [widgetRoles, setWidgetRoles] = useState([]);
+  const [widgetSaving, setWidgetSaving] = useState(false);
 
   useEffect(() => {
-    if (user?.role !== 'super_admin') navigate('/');
+    if (!['super_admin', 'hr_admin'].includes(user?.role)) navigate('/');
   }, [user, navigate]);
 
   const load = useCallback(async () => {
@@ -47,6 +58,39 @@ export default function Admin() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Load widget settings
+  const loadWidgets = useCallback(async () => {
+    try {
+      const res = await widgetsAPI.get();
+      setWidgetDefs(res.data.definitions || []);
+      setWidgetMatrix(res.data.matrix || {});
+      setWidgetRoles(res.data.roles || []);
+    } catch (err) { console.error(err); }
+  }, []);
+
+  useEffect(() => { if (activeTab === 'widgets') loadWidgets(); }, [activeTab, loadWidgets]);
+
+  const handleWidgetToggle = (widgetKey, role) => {
+    setWidgetMatrix(prev => ({
+      ...prev,
+      [widgetKey]: { ...prev[widgetKey], [role]: !prev[widgetKey]?.[role] },
+    }));
+  };
+
+  const saveWidgets = async () => {
+    setWidgetSaving(true);
+    try {
+      const changes = [];
+      for (const [widgetKey, roles] of Object.entries(widgetMatrix)) {
+        for (const [role, visible] of Object.entries(roles)) {
+          changes.push({ widget_key: widgetKey, role, is_visible: visible });
+        }
+      }
+      await widgetsAPI.update(changes);
+    } catch (err) { alert('Failed to save: ' + (err.response?.data?.error || err.message)); }
+    finally { setWidgetSaving(false); }
+  };
 
   const openCreateModal = async (currentUsers) => {
     setForm(EMPTY_FORM);
@@ -95,9 +139,11 @@ export default function Admin() {
     finally { setUpdating(null); }
   };
 
-  if (user?.role !== 'super_admin') return null;
+  if (!['super_admin', 'hr_admin'].includes(user?.role)) return null;
 
   const f = (name, value) => setForm(prev => ({ ...prev, [name]: value }));
+
+  const ROLE_LABELS = { employee: 'Employee', team_lead: 'Team Lead', hr_admin: 'HR Admin', super_admin: 'Super Admin' };
 
   return (
     <div className="space-y-5">
@@ -112,11 +158,82 @@ export default function Admin() {
             <p className="text-sm text-oe-muted">User &amp; Role Management</p>
           </div>
         </div>
-        <button onClick={() => openCreateModal(users)} className="btn-primary">
-          <UserPlus size={15} /> Create User
-        </button>
+        {activeTab === 'users' && (
+          <button onClick={() => openCreateModal(users)} className="btn-primary">
+            <UserPlus size={15} /> Create User
+          </button>
+        )}
+        {activeTab === 'widgets' && (
+          <button onClick={saveWidgets} disabled={widgetSaving} className="btn-primary">
+            <Save size={15} />{widgetSaving ? 'Saving...' : 'Save Changes'}
+          </button>
+        )}
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-1 bg-oe-surface rounded-xl p-1 w-fit">
+        {ADMIN_TABS.map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)}
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${activeTab === t.id ? 'bg-oe-card text-oe-text shadow' : 'text-oe-muted hover:text-oe-text'}`}>
+            <t.icon size={14} />{t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Widget Settings Panel */}
+      {activeTab === 'widgets' && (
+        <div className="card p-5 space-y-4">
+          <div>
+            <h2 className="font-semibold text-oe-text">Dashboard Widget Visibility</h2>
+            <p className="text-sm text-oe-muted mt-0.5">Control which widgets appear on the dashboard for each role. Changes take effect immediately after saving.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-oe-border">
+                  <th className="text-left py-3 pr-4 text-sm font-semibold text-oe-text min-w-[180px]">Widget</th>
+                  {widgetRoles.map(role => (
+                    <th key={role} className="text-center py-3 px-3 text-sm font-semibold text-oe-text capitalize min-w-[100px]">
+                      {ROLE_LABELS[role] || role}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {widgetDefs.map((w, i) => (
+                  <tr key={w.key} className={`border-b border-oe-border/50 ${i % 2 === 0 ? '' : 'bg-oe-surface/30'}`}>
+                    <td className="py-3 pr-4">
+                      <div className="font-medium text-oe-text text-sm">{w.label}</div>
+                      <div className="text-xs text-oe-muted">{w.description}</div>
+                    </td>
+                    {widgetRoles.map(role => {
+                      const isOn = widgetMatrix[w.key]?.[role] ?? false;
+                      return (
+                        <td key={role} className="text-center py-3 px-3">
+                          <button onClick={() => handleWidgetToggle(w.key, role)}
+                            className={`mx-auto transition-colors ${isOn ? 'text-oe-success' : 'text-oe-muted/30'}`}
+                            title={isOn ? `Visible to ${ROLE_LABELS[role]}` : `Hidden from ${ROLE_LABELS[role]}`}>
+                            {isOn ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
+                          </button>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {widgetDefs.length === 0 && (
+            <div className="text-center py-8 text-oe-muted">
+              <div className="w-6 h-6 border-2 border-oe-primary border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+              Loading widget settings...
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Users tab content */}
+      {activeTab === 'users' && <>
       {/* Desktop table */}
       <div className="card p-0 overflow-hidden hidden md:block">
         <div className="overflow-x-auto">
@@ -222,6 +339,7 @@ export default function Admin() {
           );
         })}
       </div>
+      </> }
 
       {/* Create User Modal */}
       <Modal open={showModal} onClose={() => setShowModal(false)} title="Create New User" size="sm">
@@ -286,3 +404,4 @@ export default function Admin() {
     </div>
   );
 }
+

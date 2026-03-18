@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../context/AuthContext';
+import EmployeeDashboard from './EmployeeDashboard';
 import { useNavigate } from 'react-router-dom';
 import { dashboardAPI, employeesAPI } from '../services/api';
 import { Users, Calendar, Clock, Building2, TrendingUp, DollarSign, Gift, ChevronRight } from 'lucide-react';
@@ -30,7 +32,7 @@ const StatCard = ({ icon: Icon, label, value, sub, color = 'primary', onClick })
 const fmtCurrency = (n) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n || 0);
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
 
-export default function Dashboard() {
+function HRDashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [deptModal, setDeptModal] = useState(null); // { id, name, code }
@@ -253,4 +255,10 @@ export default function Dashboard() {
       </Modal>
     </div>
   );
+}
+
+export default function Dashboard() {
+  const { user } = useAuth();
+  if (user?.role === 'employee') return <EmployeeDashboard />;
+  return <HRDashboard />;
 }

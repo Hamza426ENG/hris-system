@@ -8,28 +8,39 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('hris_token');
-    const stored = localStorage.getItem('hris_user');
-    if (token && stored) {
-      setUser(JSON.parse(stored));
-      authAPI.me().then(res => {
-        const u = {
-          id: res.data.id,
-          email: res.data.email,
-          role: res.data.role,
-          employeeId: res.data.employee_id,
-          firstName: res.data.first_name,
-          lastName: res.data.last_name,
-          avatarUrl: res.data.avatar_url,
-        };
-        setUser(u);
-        localStorage.setItem('hris_user', JSON.stringify(u));
-      }).catch(() => {
-        localStorage.removeItem('hris_token');
-        localStorage.removeItem('hris_user');
-        setUser(null);
-      }).finally(() => setLoading(false));
-    } else {
+    try {
+      const token = localStorage.getItem('hris_token');
+      const stored = localStorage.getItem('hris_user');
+      if (token && stored) {
+        let parsedUser = null;
+        try { parsedUser = JSON.parse(stored); } catch (e) {
+          localStorage.removeItem('hris_token');
+          localStorage.removeItem('hris_user');
+          setLoading(false);
+          return;
+        }
+        setUser(parsedUser);
+        authAPI.me().then(res => {
+          const u = {
+            id: res.data.id,
+            email: res.data.email,
+            role: res.data.role,
+            employeeId: res.data.employee_id,
+            firstName: res.data.first_name,
+            lastName: res.data.last_name,
+            avatarUrl: res.data.avatar_url,
+          };
+          setUser(u);
+          localStorage.setItem('hris_user', JSON.stringify(u));
+        }).catch(() => {
+          localStorage.removeItem('hris_token');
+          localStorage.removeItem('hris_user');
+          setUser(null);
+        }).finally(() => setLoading(false));
+      } else {
+        setLoading(false);
+      }
+    } catch (e) {
       setLoading(false);
     }
   }, []);

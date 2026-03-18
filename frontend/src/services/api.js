@@ -116,3 +116,15 @@ export const adminAPI = {
 };
 
 export default api;
+
+export const attendanceAPI = {
+  today: () => api.get('/attendance/today'),
+  checkIn: () => api.post('/attendance/checkin'),
+  checkOut: () => api.post('/attendance/checkout'),
+  history: (params) => api.get('/attendance/history', { params }),
+};
+
+export const widgetsAPI = {
+  get: () => api.get('/widgets'),
+  update: (changes) => api.put('/widgets', { changes }),
+};

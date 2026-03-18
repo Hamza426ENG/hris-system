@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 
-const api = axios.create({ baseURL: API_URL });
+const api = axios.create({ baseURL: API_URL, timeout: 10000 });
 
 api.interceptors.request.use((config) => {
   if (typeof window !== 'undefined') {
@@ -20,7 +20,7 @@ api.interceptors.response.use(
       if (typeof window !== 'undefined') {
         localStorage.removeItem('hris_token');
         localStorage.removeItem('hris_user');
-        window.location.href = '/login';
+        window.location.href = '/hris-nextjs/login/';
       }
     }
     return Promise.reject(err);

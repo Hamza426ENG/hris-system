@@ -16,7 +16,7 @@ const allNavItems = [
   { to: '/payroll', icon: Wallet, label: 'Payroll', roles: ['super_admin', 'hr_admin'] },
   { to: '/reports', icon: BarChart3, label: 'Reports', roles: ['super_admin', 'hr_admin'] },
   { to: '/settings', icon: Settings, label: 'Settings', roles: ['super_admin', 'hr_admin'] },
-  { to: '/admin', icon: ShieldCheck, label: 'Admin Panel', roles: ['super_admin'] },
+  { to: '/admin', icon: ShieldCheck, label: 'Admin Panel', roles: ['super_admin', 'hr_admin'] },
 ];
 
 export default function Sidebar({ open, setOpen }) {
