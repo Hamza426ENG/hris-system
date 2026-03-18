@@ -27,13 +27,19 @@ router.get('/', async (req, res) => {
 
     // Role-based filtering
     const role = req.user.role;
+    const empId = req.user.employee_id;
     if (role === 'team_lead') {
+      if (!empId) {
+        // No employee record linked — return empty list
+        return res.json({ data: [], total: 0, page: 1, limit });
+      }
       where.push(`(e.manager_id = $${i} OR e.id = $${i})`);
-      params.push(req.user.employee_id);
+      params.push(empId);
       i++;
     } else if (role === 'employee') {
+      if (!empId) return res.json({ data: [], total: 0, page: 1, limit });
       where.push(`e.id = $${i++}`);
-      params.push(req.user.employee_id);
+      params.push(empId);
     }
 
     const query = `
@@ -73,6 +79,22 @@ router.get('/', async (req, res) => {
 // GET /api/employees/:id
 router.get('/:id', async (req, res) => {
   try {
+    const role = req.user.role;
+    const empId = req.user.employee_id;
+
+    // Team lead: can only view their own profile or their direct reports
+    if (role === 'team_lead' && empId) {
+      const allowed = await db.query(
+        'SELECT id FROM employees WHERE (manager_id = $1 OR id = $1) AND id = $2',
+        [empId, req.params.id]
+      );
+      if (allowed.rows.length === 0) return res.status(403).json({ error: 'Access denied.' });
+    }
+    // Employee: can only view their own profile
+    if (role === 'employee' && empId !== req.params.id) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+
     const result = await db.query(`
       SELECT e.*,
         d.name as department_name, d.code as department_code,
