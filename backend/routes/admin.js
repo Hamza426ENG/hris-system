@@ -5,7 +5,7 @@ const { authenticate, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 router.use(authenticate);
-router.use(authorize('super_admin'));
+router.use(authorize('super_admin', 'hr_admin'));
 
 const VALID_ROLES = ['super_admin', 'hr_admin', 'team_lead', 'employee'];
 
