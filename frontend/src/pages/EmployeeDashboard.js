@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { employeesAPI, leavesAPI, attendanceAPI, announcementsAPI, widgetsAPI } from '../services/api';
+import { employeesAPI, leavesAPI, attendanceAPI, widgetsAPI } from '../services/api';
+import AnnouncementsWidget from '../components/AnnouncementsWidget';
+import AttendanceWidget from '../components/AttendanceWidget';
+import ResignationWidget from '../components/ResignationWidget';
+import WFHWidget from '../components/WFHWidget';
 import Avatar from '../components/Avatar';
-import { Clock, LogIn, LogOut, Calendar, Building2, UserCheck, Megaphone, ChevronRight, Briefcase, Phone, MapPin, Users } from 'lucide-react';
+import { Calendar, Building2, UserCheck, ChevronRight, Briefcase, Phone, MapPin, Users } from 'lucide-react';
 
 const fmtTime = (ts) => ts ? new Date(ts).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '—';
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
@@ -25,12 +29,8 @@ export default function EmployeeDashboard() {
   const [teamMembers, setTeamMembers] = useState([]);
   const [leaveBalances, setLeaveBalances] = useState([]);
   const [recentLeaves, setRecentLeaves] = useState([]);
-  const [attendance, setAttendance] = useState(null);
-  const [announcements, setAnnouncements] = useState([]);
   const [widgets, setWidgets] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [checkingIn, setCheckingIn] = useState(false);
-  const [checkingOut, setCheckingOut] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!user?.employeeId) { setLoading(false); return; }
@@ -65,12 +65,6 @@ export default function EmployeeDashboard() {
             .then(r => setRecentLeaves(r.data.data || [])).catch(() => {})
         );
       }
-      if (visible.includes('attendance')) {
-        fetches.push(attendanceAPI.today().then(r => setAttendance(r.data.record)).catch(() => {}));
-      }
-      if (visible.includes('announcements')) {
-        fetches.push(announcementsAPI.list().then(r => setAnnouncements((r.data || []).slice(0, 3))).catch(() => {}));
-      }
       await Promise.all(fetches);
     } catch (err) {
       console.error(err);
@@ -81,23 +75,6 @@ export default function EmployeeDashboard() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handleCheckIn = async () => {
-    setCheckingIn(true);
-    try {
-      const res = await attendanceAPI.checkIn();
-      setAttendance(res.data.record);
-    } catch (err) { alert(err.response?.data?.error || 'Check-in failed'); }
-    finally { setCheckingIn(false); }
-  };
-
-  const handleCheckOut = async () => {
-    setCheckingOut(true);
-    try {
-      const res = await attendanceAPI.checkOut();
-      setAttendance(res.data.record);
-    } catch (err) { alert(err.response?.data?.error || 'Check-out failed'); }
-    finally { setCheckingOut(false); }
-  };
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -123,7 +100,7 @@ export default function EmployeeDashboard() {
         <p className="text-sm text-oe-muted">{new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className={`grid grid-cols-1 gap-5 items-start ${show('profile_summary') ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
 
         {/* LEFT: Profile Card */}
         {show('profile_summary') && (
@@ -186,48 +163,7 @@ export default function EmployeeDashboard() {
             </div>
 
             {/* Attendance card */}
-            {show('attendance') && (
-              <div className="card p-5 space-y-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <Clock size={16} className="text-oe-primary" />
-                  <h3 className="font-semibold text-oe-text text-sm">Today's Attendance</h3>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-oe-success/5 border border-oe-success/20 rounded-lg p-3 text-center">
-                    <div className="text-xs text-oe-muted mb-1 flex items-center justify-center gap-1"><LogIn size={11} />Check In</div>
-                    <div className="text-sm font-bold text-oe-success">{fmtTime(attendance?.check_in)}</div>
-                  </div>
-                  <div className="bg-oe-danger/5 border border-oe-danger/20 rounded-lg p-3 text-center">
-                    <div className="text-xs text-oe-muted mb-1 flex items-center justify-center gap-1"><LogOut size={11} />Check Out</div>
-                    <div className="text-sm font-bold text-oe-danger">{fmtTime(attendance?.check_out)}</div>
-                  </div>
-                </div>
-
-                {attendance?.hours_worked && (
-                  <div className="text-center text-xs text-oe-muted">
-                    Hours worked: <span className="font-semibold text-oe-text">{attendance.hours_worked}h</span>
-                    {attendance.overtime_hours > 0 && <span className="text-oe-warning ml-1">+{attendance.overtime_hours}h OT</span>}
-                  </div>
-                )}
-
-                <div className="flex gap-2">
-                  {!attendance?.check_in ? (
-                    <button onClick={handleCheckIn} disabled={checkingIn}
-                      className="flex-1 btn-primary text-xs justify-center py-2">
-                      <LogIn size={14} />{checkingIn ? 'Checking in...' : 'Check In'}
-                    </button>
-                  ) : !attendance?.check_out ? (
-                    <button onClick={handleCheckOut} disabled={checkingOut}
-                      className="flex-1 bg-oe-danger text-white rounded-lg px-3 py-2 text-xs font-medium flex items-center justify-center gap-1.5 hover:bg-red-700 transition-colors">
-                      <LogOut size={14} />{checkingOut ? 'Checking out...' : 'Check Out'}
-                    </button>
-                  ) : (
-                    <div className="flex-1 text-center text-xs text-oe-success font-medium py-2">Attendance complete</div>
-                  )}
-                </div>
-              </div>
-            )}
+            {show('attendance') && <AttendanceWidget />}
           </div>
         )}
 
@@ -338,10 +274,19 @@ export default function EmployeeDashboard() {
               )}
             </div>
           )}
+
+          {/* Resignation fills remaining middle space */}
+          <ResignationWidget />
         </div>
 
-        {/* RIGHT: Org Structure + Announcements */}
+        {/* RIGHT: Announcements + WFH + Org Structure */}
         <div className="lg:col-span-1 space-y-4">
+
+          {/* Announcements */}
+          {show('announcements') && <AnnouncementsWidget limit={20} />}
+
+          {/* WFH always visible */}
+          <WFHWidget />
 
           {/* Org Structure */}
           {show('org_structure') && (
@@ -388,28 +333,6 @@ export default function EmployeeDashboard() {
             </div>
           )}
 
-          {/* Announcements */}
-          {show('announcements') && announcements.length > 0 && (
-            <div className="card p-5 space-y-3">
-              <div className="flex items-center gap-2">
-                <Megaphone size={16} className="text-oe-danger" />
-                <h3 className="font-semibold text-oe-text text-sm">Announcements</h3>
-              </div>
-              <div className="space-y-2.5">
-                {announcements.map(a => (
-                  <div key={a.id} className={`p-3 rounded-lg border-l-4 ${
-                    a.priority === 'high' ? 'border-oe-danger bg-red-50' :
-                    a.priority === 'normal' ? 'border-oe-primary bg-blue-50' :
-                    'border-oe-muted bg-oe-surface'
-                  }`}>
-                    <div className="font-medium text-oe-text text-sm">{a.title}</div>
-                    <div className="text-xs text-oe-muted mt-0.5 line-clamp-2">{a.content}</div>
-                    <div className="text-xs text-oe-muted mt-1">{fmtDate(a.created_at)}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>

@@ -289,6 +289,26 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+// PATCH /api/employees/:id/manager — HR/admin only
+router.patch('/:id/manager', async (req, res) => {
+  if (!['super_admin', 'hr_admin'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Only HR/Admin can change supervisor.' });
+  }
+  const { manager_id } = req.body;
+  try {
+    const result = await db.query(`
+      UPDATE employees SET manager_id = $1, updated_at = NOW()
+      WHERE id = $2
+      RETURNING id, manager_id
+    `, [manager_id || null, req.params.id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Employee not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE /api/employees/:id
 router.delete('/:id', async (req, res) => {
   try {

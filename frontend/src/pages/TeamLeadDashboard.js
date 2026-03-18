@@ -2,6 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { teamAPI, leavesAPI } from '../services/api';
 import Avatar from '../components/Avatar';
+import ProfileSummaryCard from '../components/ProfileSummaryCard';
+import AnnouncementsWidget from '../components/AnnouncementsWidget';
+import AttendanceWidget from '../components/AttendanceWidget';
+import ResignationWidget from '../components/ResignationWidget';
+import WFHWidget from '../components/WFHWidget';
 import {
   Users, Calendar, Clock, CheckCircle, XCircle, AlertCircle,
   ChevronRight, LogIn, LogOut, Gift, UserPlus, Building2, Briefcase
@@ -99,12 +104,25 @@ export default function TeamLeadDashboard() {
         </button>
       </div>
 
-      {/* Stats row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={Users}    label="Direct Reports"  value={team.total}             sub={`${team.active} active`}              color="primary" />
-        <StatCard icon={CheckCircle} label="Checked In Today" value={team.checkedInToday} sub={`of ${team.active} active`}           color="success" />
-        <StatCard icon={Calendar} label="On Leave"        value={team.onLeave}           sub="currently"                            color="warning" />
-        <StatCard icon={AlertCircle} label="Pending Leaves" value={team.pendingLeaveCount} sub="awaiting your approval"             color="danger" />
+      {/* Profile + Stats + Announcements */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5 items-start">
+        <div className="lg:col-span-1 space-y-4">
+          <ProfileSummaryCard profile={self} />
+          <AttendanceWidget />
+        </div>
+        <div className="lg:col-span-2 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <StatCard icon={Users}       label="Direct Reports"   value={team.total}              sub={`${team.active} active`}         color="primary" />
+            <StatCard icon={CheckCircle} label="Checked In Today" value={team.checkedInToday}     sub={`of ${team.active} active`}      color="success" />
+            <StatCard icon={Calendar}    label="On Leave"         value={team.onLeave}            sub="currently"                       color="warning" />
+            <StatCard icon={AlertCircle} label="Pending Leaves"   value={team.pendingLeaveCount}  sub="awaiting your approval"          color="danger" />
+          </div>
+          <ResignationWidget />
+        </div>
+        <div className="lg:col-span-2 space-y-4">
+          <AnnouncementsWidget limit={20} />
+          <WFHWidget />
+        </div>
       </div>
 
       {/* Department card */}

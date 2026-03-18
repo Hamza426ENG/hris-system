@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { employeesAPI, leavesAPI, salaryAPI } from '../services/api';
-import { ArrowLeft, Mail, Phone, MapPin, Calendar, Briefcase, User, DollarSign, Clock, Plus, Edit, Camera } from 'lucide-react';
+import { ArrowLeft, Mail, Phone, MapPin, Calendar, Briefcase, User, DollarSign, Clock, Plus, Edit, Camera, X, Check } from 'lucide-react';
 import Modal from '../components/Modal';
 import Avatar from '../components/Avatar';
+import { useAuth } from '../context/AuthContext';
 
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '-';
 const fmtCurrency = (n) => n ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n) : '-';
@@ -13,6 +14,8 @@ const TABS = ['Overview', 'Leave History', 'Salary & Comp', 'Payroll History'];
 export default function EmployeeProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isHR = ['super_admin', 'hr_admin'].includes(user?.role);
   const [emp, setEmp] = useState(null);
   const [leaves, setLeaves] = useState([]);
   const [salary, setSalary] = useState([]);
@@ -25,6 +28,13 @@ export default function EmployeeProfile() {
   const [saving, setSaving] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const avatarInputRef = useRef(null);
+
+  // Supervisor change
+  const [supervisorEdit, setSupervisorEdit] = useState(false);
+  const [allEmployees, setAllEmployees] = useState([]);
+  const [supervisorSearch, setSupervisorSearch] = useState('');
+  const [selectedSupervisorId, setSelectedSupervisorId] = useState('');
+  const [savingSupervisor, setSavingSupervisor] = useState(false);
 
   const handleAvatarUpload = (e) => {
     const file = e.target.files?.[0];
@@ -55,6 +65,32 @@ export default function EmployeeProfile() {
     employeesAPI.getPayroll(id).then(r => setPayroll(r.data)).catch(console.error);
     leavesAPI.balances(id).then(r => setBalances(r.data)).catch(console.error);
   }, [emp, id]);
+
+  const openSupervisorEdit = async () => {
+    if (allEmployees.length === 0) {
+      const res = await employeesAPI.list({ limit: 200 }).catch(() => ({ data: { data: [] } }));
+      setAllEmployees((res.data.data || []).filter(e => e.id !== id));
+    }
+    setSelectedSupervisorId(emp.manager_id || '');
+    setSupervisorSearch('');
+    setSupervisorEdit(true);
+  };
+
+  const handleSaveSupervisor = async () => {
+    setSavingSupervisor(true);
+    try {
+      await employeesAPI.updateManager(id, selectedSupervisorId || null);
+      const updated = allEmployees.find(e => e.id === selectedSupervisorId);
+      setEmp(prev => ({
+        ...prev,
+        manager_id: selectedSupervisorId || null,
+        manager_name: updated ? `${updated.first_name} ${updated.last_name}` : null,
+      }));
+      setSupervisorEdit(false);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to update supervisor');
+    } finally { setSavingSupervisor(false); }
+  };
 
   const handleSalary = async () => {
     if (!salaryForm.basic_salary) { alert('Basic salary required'); return; }
@@ -186,7 +222,6 @@ export default function EmployeeProfile() {
               ['Position', emp.position_title || '-'],
               ['Grade', emp.grade || '-'],
               ['Employment Type', emp.employment_type?.replace('_', ' ') || '-'],
-              ['Manager', emp.manager_name || '-'],
               ['Hire Date', fmtDate(emp.hire_date)],
               ['Work Location', emp.work_location || '-'],
             ].map(([k, v]) => (
@@ -195,6 +230,20 @@ export default function EmployeeProfile() {
                 <span className="text-oe-text capitalize">{v}</span>
               </div>
             ))}
+            {/* Manager row — editable for HR */}
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-oe-muted">Manager</span>
+              <div className="flex items-center gap-2">
+                <span className="text-oe-text">{emp.manager_name || '—'}</span>
+                {isHR && (
+                  <button onClick={openSupervisorEdit}
+                    className="p-1 rounded-lg hover:bg-oe-surface text-oe-muted hover:text-oe-primary transition-colors"
+                    title="Change supervisor">
+                    <Edit size={13} />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="card space-y-4">
@@ -376,6 +425,60 @@ export default function EmployeeProfile() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Supervisor Change Modal */}
+      {supervisorEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <h2 className="text-base font-bold text-oe-text">Change Supervisor</h2>
+              <button onClick={() => setSupervisorEdit(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-oe-muted"><X size={18} /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <input
+                type="text"
+                placeholder="Search employees..."
+                value={supervisorSearch}
+                onChange={e => setSupervisorSearch(e.target.value)}
+                className="input w-full"
+                autoFocus
+              />
+              <div className="max-h-56 overflow-y-auto space-y-1 border border-oe-border rounded-xl p-1">
+                <button
+                  onClick={() => setSelectedSupervisorId('')}
+                  className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${!selectedSupervisorId ? 'bg-oe-primary text-white' : 'hover:bg-oe-surface text-oe-muted'}`}>
+                  — No supervisor
+                </button>
+                {allEmployees
+                  .filter(e => {
+                    const q = supervisorSearch.toLowerCase();
+                    return !q || `${e.first_name} ${e.last_name}`.toLowerCase().includes(q) || (e.employee_id || '').toLowerCase().includes(q);
+                  })
+                  .map(e => (
+                    <button key={e.id} onClick={() => setSelectedSupervisorId(e.id)}
+                      className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-2 ${selectedSupervisorId === e.id ? 'bg-oe-primary text-white' : 'hover:bg-oe-surface text-oe-text'}`}>
+                      <div className={`w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold ${selectedSupervisorId === e.id ? 'bg-white/20 text-white' : 'gradient-bg text-white'}`}>
+                        {(e.first_name || '?').charAt(0)}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">{e.first_name} {e.last_name}</div>
+                        <div className={`text-xs ${selectedSupervisorId === e.id ? 'text-white/70' : 'text-oe-muted'}`}>{e.position_title || e.employee_id}</div>
+                      </div>
+                    </button>
+                  ))}
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button onClick={() => setSupervisorEdit(false)} className="flex-1 btn-secondary">Cancel</button>
+                <button onClick={handleSaveSupervisor} disabled={savingSupervisor}
+                  className="flex-1 flex items-center justify-center gap-2 bg-oe-primary text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-oe-primary/90 transition-colors disabled:opacity-60">
+                  {savingSupervisor ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Check size={15} />}
+                  Save
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

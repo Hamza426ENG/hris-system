@@ -7,6 +7,11 @@ import { dashboardAPI, employeesAPI } from '../services/api';
 import { Users, Calendar, Clock, Building2, TrendingUp, DollarSign, Gift, ChevronRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import Modal from '../components/Modal';
+import ProfileSummaryCard from '../components/ProfileSummaryCard';
+import AnnouncementsWidget from '../components/AnnouncementsWidget';
+import AttendanceWidget from '../components/AttendanceWidget';
+import ResignationWidget from '../components/ResignationWidget';
+import WFHWidget from '../components/WFHWidget';
 
 const COLORS = ['#1D6BE4', '#7C5CFC', '#00D4FF', '#00D4AA', '#F5A623', '#FF4D6D'];
 
@@ -39,11 +44,16 @@ function HRDashboard() {
   const [deptModal, setDeptModal] = useState(null); // { id, name, code }
   const [deptEmployees, setDeptEmployees] = useState([]);
   const [deptLoading, setDeptLoading] = useState(false);
+  const [ownProfile, setOwnProfile] = useState(null);
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   useEffect(() => {
     dashboardAPI.stats().then(res => setData(res.data)).catch(console.error).finally(() => setLoading(false));
-  }, []);
+    if (user?.employeeId) {
+      employeesAPI.get(user.employeeId).then(res => setOwnProfile(res.data)).catch(() => {});
+    }
+  }, [user?.employeeId]);
 
   const handleBarClick = useCallback(async (barData) => {
     if (!barData?.id) return;
@@ -71,20 +81,38 @@ function HRDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={Users} label="Total Employees" value={stats?.totalEmployees || 0} sub={`${stats?.activeEmployees || 0} active`} color="primary" onClick={() => navigate('/employees')} />
-        <StatCard icon={TrendingUp} label="New Hires" value={stats?.newHires || 0} sub="Last 30 days" color="success" onClick={() => navigate('/employees')} />
-        <StatCard icon={Calendar} label="On Leave" value={stats?.onLeave || 0} sub={`${stats?.pendingLeaves || 0} pending requests`} color="warning" onClick={() => navigate('/leaves')} />
-        <StatCard icon={DollarSign} label="YTD Payroll" value={fmtCurrency(stats?.ytdPayroll)} sub="Gross this year" color="purple" onClick={() => navigate('/payroll')} />
-      </div>
+      {/* Profile + Stats + Announcements row */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5 items-start">
+        {/* Profile + Attendance */}
+        {ownProfile && (
+          <div className="lg:col-span-1 space-y-4">
+            <ProfileSummaryCard profile={ownProfile} />
+            <AttendanceWidget />
+          </div>
+        )}
 
-      {/* Secondary stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={Building2} label="Departments" value={stats?.departments || 0} sub="Active departments" color="cyan" onClick={() => navigate('/settings')} />
-        <StatCard icon={Clock} label="Pending Leaves" value={stats?.pendingLeaves || 0} sub="Awaiting approval" color="warning" onClick={() => navigate('/leaves?status=pending')} />
-        <StatCard icon={Users} label="Active Staff" value={stats?.activeEmployees || 0} sub="Currently active" color="success" />
-        <StatCard icon={DollarSign} label="Net Payroll YTD" value={fmtCurrency(stats?.ytdNetPayroll)} sub="Net this year" color="primary" />
+        {/* Stats + Resignations — middle column */}
+        <div className={`${ownProfile ? 'lg:col-span-2' : 'lg:col-span-3'} space-y-4`}>
+          <div className="grid grid-cols-2 gap-4">
+            <StatCard icon={Users} label="Total Employees" value={stats?.totalEmployees || 0} sub={`${stats?.activeEmployees || 0} active`} color="primary" onClick={() => navigate('/employees')} />
+            <StatCard icon={TrendingUp} label="New Hires" value={stats?.newHires || 0} sub="Last 30 days" color="success" onClick={() => navigate('/employees')} />
+            <StatCard icon={Calendar} label="On Leave" value={stats?.onLeave || 0} sub={`${stats?.pendingLeaves || 0} pending requests`} color="warning" onClick={() => navigate('/leaves')} />
+            <StatCard icon={DollarSign} label="YTD Payroll" value={fmtCurrency(stats?.ytdPayroll)} sub="Gross this year" color="purple" onClick={() => navigate('/payroll')} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <StatCard icon={Building2} label="Departments" value={stats?.departments || 0} sub="Active departments" color="cyan" onClick={() => navigate('/settings')} />
+            <StatCard icon={Clock} label="Pending Leaves" value={stats?.pendingLeaves || 0} sub="Awaiting approval" color="warning" onClick={() => navigate('/leaves?status=pending')} />
+            <StatCard icon={Users} label="Active Staff" value={stats?.activeEmployees || 0} sub="Currently active" color="success" />
+            <StatCard icon={DollarSign} label="Net Payroll YTD" value={fmtCurrency(stats?.ytdNetPayroll)} sub="Net this year" color="primary" />
+          </div>
+        </div>
+
+        {/* Announcements + WFH + Resignations — right column */}
+        <div className="lg:col-span-2 space-y-4">
+          <AnnouncementsWidget limit={20} />
+          <WFHWidget />
+          <ResignationWidget />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

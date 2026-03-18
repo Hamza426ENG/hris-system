@@ -14,6 +14,8 @@ import Salary from './pages/Salary';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import Admin from './pages/Admin';
+import Announcements from './pages/Announcements';
+import Resignations from './pages/Resignations';
 
 const PrivateRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -52,6 +54,8 @@ export default function App() {
             <Route path="reports" element={<Reports />} />
             <Route path="settings" element={<Settings />} />
             <Route path="admin" element={<Admin />} />
+            <Route path="announcements" element={<Announcements />} />
+            <Route path="resignations" element={<Resignations />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

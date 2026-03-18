@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Users, GitBranch, Calendar, DollarSign,
-  BarChart3, Settings, ChevronLeft, Wallet, ShieldCheck, X
+  BarChart3, Settings, ChevronLeft, Wallet, ShieldCheck, X, Megaphone, LogOut
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import EdgeLogo from './EdgeLogo';
@@ -16,6 +16,8 @@ const allNavItems = [
   { to: '/payroll', icon: Wallet, label: 'Payroll', roles: ['super_admin', 'hr_admin'] },
   { to: '/reports', icon: BarChart3, label: 'Reports', roles: ['super_admin', 'hr_admin'] },
   { to: '/settings', icon: Settings, label: 'Settings', roles: ['super_admin', 'hr_admin'] },
+  { to: '/announcements', icon: Megaphone, label: 'Announcements', roles: ['super_admin', 'hr_admin'] },
+  { to: '/resignations', icon: LogOut, label: 'Resignations', roles: ['super_admin', 'hr_admin', 'team_lead', 'employee'] },
   { to: '/admin', icon: ShieldCheck, label: 'Admin Panel', roles: ['super_admin', 'hr_admin'] },
 ];
 

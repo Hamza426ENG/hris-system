@@ -38,6 +38,7 @@ export const employeesAPI = {
   update: (id, data) => api.put(`/employees/${id}`, data),
   delete: (id) => api.delete(`/employees/${id}`),
   updateAvatar: (id, avatar_url) => api.put(`/employees/${id}/avatar`, { avatar_url }),
+  updateManager: (id, manager_id) => api.patch(`/employees/${id}/manager`, { manager_id }),
   getLeaves: (id) => api.get(`/employees/${id}/leaves`),
   getSalary: (id) => api.get(`/employees/${id}/salary`),
   getPayroll: (id) => api.get(`/employees/${id}/payroll`),
@@ -104,8 +105,12 @@ export const dashboardAPI = {
 
 export const announcementsAPI = {
   list: () => api.get('/announcements'),
+  unread: () => api.get('/announcements/unread'),
   create: (data) => api.post('/announcements', data),
+  update: (id, data) => api.put(`/announcements/${id}`, data),
   delete: (id) => api.delete(`/announcements/${id}`),
+  acknowledge: (id, feedback) => api.post(`/announcements/${id}/acknowledge`, { feedback }),
+  acknowledgements: (id) => api.get(`/announcements/${id}/acknowledgements`),
 };
 
 export const adminAPI = {
@@ -131,4 +136,21 @@ export const widgetsAPI = {
 
 export const teamAPI = {
   stats: () => api.get('/dashboard/team-stats'),
+};
+
+export const resignationsAPI = {
+  list: () => api.get('/resignations'),
+  active: () => api.get('/resignations/active'),
+  submit: (data) => api.post('/resignations', data),
+  supervisorReview: (id, action, comment) => api.put(`/resignations/${id}/supervisor-review`, { action, comment }),
+  hrReview: (id, action, comment) => api.put(`/resignations/${id}/hr-review`, { action, comment }),
+  withdraw: (id) => api.put(`/resignations/${id}/withdraw`),
+};
+
+export const wfhAPI = {
+  list: () => api.get('/wfh'),
+  today: () => api.get('/wfh/today'),
+  submit: (data) => api.post('/wfh', data),
+  review: (id, action, comment) => api.put(`/wfh/${id}/review`, { action, comment }),
+  cancel: (id) => api.put(`/wfh/${id}/cancel`),
 };

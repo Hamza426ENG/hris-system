@@ -3,12 +3,18 @@ const express = require('express');
 const cors = require('cors');
 const migrate = require('./migrate');
 const migrateWidgets = require('./migrate-widgets');
+const migrateAnnouncements = require('./migrate-announcements');
+const migrateResignations = require('./migrate-resignations');
+const migrateWFH = require('./migrate-wfh');
 
 const app = express();
 
 // Run DB migration on startup
 migrate().catch(console.error);
 migrateWidgets().catch(console.error);
+migrateAnnouncements().catch(console.error);
+migrateResignations().catch(console.error);
+migrateWFH().catch(console.error);
 
 // Middleware
 app.use(cors({
@@ -38,6 +44,8 @@ app.use('/api/admin', require('./routes/admin'));
 app.use("/api/chat", require("./routes/chat"));
 app.use("/api/attendance", require("./routes/attendance"));
 app.use("/api/widgets", require("./routes/widgets"));
+app.use('/api/resignations', require('./routes/resignations'));
+app.use('/api/wfh', require('./routes/wfh'));
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));

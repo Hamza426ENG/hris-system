@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Menu, Bell, LogOut, User, ChevronDown, CheckCircle2, Clock, Megaphone } from 'lucide-react';
+import { Menu, Bell, LogOut, User, ChevronDown, CheckCircle2, Clock, Megaphone, ClipboardList } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { leavesAPI, announcementsAPI } from '../services/api';
+import { leavesAPI, announcementsAPI, wfhAPI, resignationsAPI } from '../services/api';
+import PendingApprovalsPopup from './PendingApprovalsPopup';
 
 const PAGE_TITLES = {
   '/': 'Dashboard',
@@ -23,8 +24,13 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notifLoading, setNotifLoading] = useState(false);
+  const [approvalsOpen, setApprovalsOpen] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
   const notifRef = useRef(null);
   const menuRef = useRef(null);
+
+  const isApprover = ['super_admin', 'hr_admin', 'team_lead'].includes(user?.role);
+  const empId = user?.employeeId;
 
   useEffect(() => {
     const handleClick = (e) => {
@@ -41,6 +47,25 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
 
   // Load count on mount for badge
   useEffect(() => { loadNotifications(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load pending approvals count for badge
+  useEffect(() => {
+    if (!isApprover || !empId) return;
+    const isHR = ['super_admin', 'hr_admin'].includes(user?.role);
+    Promise.all([
+      leavesAPI.list({ status: 'pending' }),
+      wfhAPI.list(),
+      resignationsAPI.list(),
+    ]).then(([lRes, wRes, rRes]) => {
+      const lCount = (lRes.data || []).filter(l => l.status === 'pending').length;
+      const wCount = (wRes.data || []).filter(w => w.status === 'pending' && w.supervisor_id === empId).length;
+      const rList = rRes.data || [];
+      const rCount = isHR
+        ? rList.filter(r => r.status === 'supervisor_approved').length
+        : rList.filter(r => r.status === 'pending' && r.supervisor_id === empId).length;
+      setPendingCount(lCount + wCount + rCount);
+    }).catch(() => {});
+  }, [isApprover, empId, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadNotifications = async () => {
     setNotifLoading(true);
@@ -99,6 +124,7 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
     `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(`${user?.firstName || ''} ${user?.lastName || ''}`)}&backgroundColor=1D6BE4,7C5CFC&backgroundType=gradientLinear&fontSize=36&fontWeight=600`;
 
   return (
+    <>
     <header className="h-16 bg-white border-b border-oe-border flex items-center justify-between px-4 sm:px-6 flex-shrink-0 shadow-sm">
       <div className="flex items-center gap-3 sm:gap-4 min-w-0">
         <button
@@ -111,6 +137,22 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+        {/* Pending Approvals */}
+        {isApprover && (
+          <button
+            onClick={() => setApprovalsOpen(true)}
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-oe-muted hover:text-oe-text hover:bg-slate-100 transition-colors relative"
+            title="Pending Approvals"
+          >
+            <ClipboardList size={18} />
+            {pendingCount > 0 && (
+              <span className="absolute top-1.5 right-1.5 min-w-[16px] h-4 bg-oe-danger text-white text-[10px] font-bold rounded-full flex items-center justify-center px-0.5">
+                {pendingCount > 99 ? '99+' : pendingCount}
+              </span>
+            )}
+          </button>
+        )}
+
         {/* Notifications */}
         <div className="relative" ref={notifRef}>
           <button
@@ -220,5 +262,10 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
         </div>
       </div>
     </header>
+
+    {approvalsOpen && (
+      <PendingApprovalsPopup onClose={() => { setApprovalsOpen(false); }} />
+    )}
+  </>
   );
 }
