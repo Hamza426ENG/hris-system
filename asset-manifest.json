@@ -1,13 +1,13 @@
 {
   "files": {
-    "main.css": "/hris-system/static/css/main.9aa50b5b.css",
-    "main.js": "/hris-system/static/js/main.834174b7.js",
+    "main.css": "/hris-system/static/css/main.28457324.css",
+    "main.js": "/hris-system/static/js/main.93a56f61.js",
     "index.html": "/hris-system/index.html",
-    "main.9aa50b5b.css.map": "/hris-system/static/css/main.9aa50b5b.css.map",
-    "main.834174b7.js.map": "/hris-system/static/js/main.834174b7.js.map"
+    "main.28457324.css.map": "/hris-system/static/css/main.28457324.css.map",
+    "main.93a56f61.js.map": "/hris-system/static/js/main.93a56f61.js.map"
   },
   "entrypoints": [
-    "static/css/main.9aa50b5b.css",
-    "static/js/main.834174b7.js"
+    "static/css/main.28457324.css",
+    "static/js/main.93a56f61.js"
   ]
 }
