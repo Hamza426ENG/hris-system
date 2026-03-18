@@ -152,7 +152,7 @@ router.get('/team-stats', async (req, res) => {
       // Leave balance summary for team
       db.query(`
         SELECT lt.name as leave_type,
-          ROUND(AVG(lb.remaining_days),1) as avg_remaining,
+          ROUND(AVG(lb.available_days),1) as avg_remaining,
           SUM(lb.used_days) as total_used,
           COUNT(lb.id) as member_count
         FROM leave_balances lb
