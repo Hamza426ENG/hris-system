@@ -16,6 +16,16 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Request logging
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`);
+  });
+  next();
+});
+
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date() }));
 app.get('/', (req, res) => res.json({ message: 'HRIS API v1.0', status: 'running' }));

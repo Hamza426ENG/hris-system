@@ -42,6 +42,29 @@
 @layer utilities {
   .text-gradient { background: linear-gradient(135deg, #1D6BE4, #7C3AED); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
   .bg-grid { background-image: radial-gradient(circle, #CBD5E1 1px, transparent 1px); background-size: 32px 32px; }
+  
+  /* Blob animations for login background */
+  .animate-blob {
+    animation: blob 7s infinite;
+  }
+  .animation-delay-2000 {
+    animation-delay: 2s;
+  }
+  .animation-delay-4000 {
+    animation-delay: 4s;
+  }
+}
+
+@keyframes blob {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
 }
 
 /* Print styles */

@@ -23,13 +23,27 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notifLoading, setNotifLoading] = useState(false);
+  const [seenIds, setSeenIds] = useState(new Set());
   const notifRef = useRef(null);
   const menuRef = useRef(null);
+  const notifPanelOpenRef = useRef(false);
+
+  // Load seen notification IDs from localStorage per user
+  useEffect(() => {
+    if (!user?.id) return;
+    try {
+      const stored = JSON.parse(localStorage.getItem(`notif-seen-${user.id}`) || '[]');
+      setSeenIds(new Set(stored));
+    } catch {
+      setSeenIds(new Set());
+    }
+  }, [user?.id]);
 
   useEffect(() => {
     const handleClick = (e) => {
       if (notifRef.current && !notifRef.current.contains(e.target)) {
         setNotifOpen(false);
+        notifPanelOpenRef.current = false;
       }
       if (menuRef.current && !menuRef.current.contains(e.target)) {
         setMenuOpen(false);
@@ -39,11 +53,26 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  // Load count on mount for badge
-  useEffect(() => { loadNotifications(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Initial load + real-time polling every 60s
+  useEffect(() => {
+    loadNotifications();
+    const interval = setInterval(() => loadNotifications(true), 60000);
+    return () => clearInterval(interval);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadNotifications = async () => {
-    setNotifLoading(true);
+  const markAllSeen = (notifList) => {
+    if (!user?.id) return;
+    setSeenIds(prev => {
+      const next = new Set([...prev, ...notifList.map(n => n.id)]);
+      try {
+        localStorage.setItem(`notif-seen-${user.id}`, JSON.stringify([...next].slice(-500)));
+      } catch {}
+      return next;
+    });
+  };
+
+  const loadNotifications = async (silent = false) => {
+    if (!silent) setNotifLoading(true);
     try {
       const [leavesRes, announcementsRes] = await Promise.all([
         leavesAPI.list({ status: 'pending' }),
@@ -65,18 +94,25 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
         time: a.created_at,
         path: '/settings',
       }));
-      setNotifications([...leaveNotifs, ...announcementNotifs]);
+      const all = [...leaveNotifs, ...announcementNotifs];
+      setNotifications(all);
+      // If panel is open, auto-mark new notifications as seen
+      if (notifPanelOpenRef.current) markAllSeen(all);
     } catch {
-      setNotifications([]);
+      if (!silent) setNotifications([]);
     } finally {
-      setNotifLoading(false);
+      if (!silent) setNotifLoading(false);
     }
   };
 
   const handleNotifToggle = () => {
     const next = !notifOpen;
     setNotifOpen(next);
-    if (next) loadNotifications();
+    notifPanelOpenRef.current = next;
+    if (next) {
+      loadNotifications();
+      markAllSeen(notifications); // immediately clear badge
+    }
   };
 
   const formatTime = (ts) => {
@@ -89,6 +125,8 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
     if (diff < 1440) return `${Math.floor(diff / 60)}h ago`;
     return d.toLocaleDateString();
   };
+
+  const unreadCount = notifications.filter(n => !seenIds.has(n.id)).length;
 
   const title = Object.entries(PAGE_TITLES)
     .sort((a, b) => b[0].length - a[0].length)
@@ -116,8 +154,10 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
             className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-oe-muted hover:text-oe-text hover:bg-slate-100 transition-colors relative"
           >
             <Bell size={18} />
-            {notifications.length > 0 && (
-              <span className="absolute top-2 right-2 w-2 h-2 bg-oe-danger rounded-full"></span>
+            {!notifOpen && unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-oe-danger text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1 leading-none">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
             )}
           </button>
 

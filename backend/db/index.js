@@ -11,14 +11,15 @@ const poolConfig = {
 
 const pool = new Pool(poolConfig);
 
-pool.on('connect', () => {
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('Connected to PostgreSQL');
-  }
-});
-
 pool.on('error', (err) => {
   console.error('PostgreSQL pool error:', err);
+});
+
+// Log initial connection
+pool.query('SELECT NOW()').then(() => {
+  console.log('PostgreSQL connected successfully');
+}).catch(err => {
+  console.error('PostgreSQL connection failed:', err.message);
 });
 
 module.exports = {
