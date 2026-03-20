@@ -107,6 +107,7 @@ function AdminContent() {
                 </tr>
               ) : users.map(u => {
                 const isOwnAccount = u.id === user?.id;
+                const isSuperAdmin = u.role === 'super_admin';
                 const isRoleUpdating = updating === u.id + '-role';
                 const isToggleUpdating = updating === u.id + '-toggle';
 
@@ -130,12 +131,14 @@ function AdminContent() {
                     </td>
                     <td className="table-cell text-sm text-oe-muted">{u.email}</td>
                     <td className="table-cell">
-                      {isOwnAccount ? (
+                      {isOwnAccount || isSuperAdmin ? (
                         <div className="space-y-1">
                           <span className="badge-pending text-xs">
                             {ROLE_OPTIONS.find(r => r.value === u.role)?.label || u.role}
                           </span>
-                          <div className="text-xs text-oe-muted">Cannot change own role</div>
+                          <div className="text-xs text-oe-muted">
+                            {isOwnAccount ? 'Cannot change own role' : 'Protected role'}
+                          </div>
                         </div>
                       ) : (
                         <select
@@ -160,9 +163,15 @@ function AdminContent() {
                     <td className="table-cell">
                       <button
                         onClick={() => handleToggle(u.id)}
-                        disabled={isToggleUpdating}
-                        className={`p-1.5 rounded hover:bg-oe-surface transition-colors ${u.is_active ? 'text-oe-success hover:text-oe-danger' : 'text-oe-muted hover:text-oe-success'}`}
-                        title={u.is_active ? 'Deactivate user' : 'Activate user'}
+                        disabled={isToggleUpdating || isSuperAdmin}
+                        className={`p-1.5 rounded transition-colors ${
+                          isSuperAdmin
+                            ? 'text-slate-300 cursor-not-allowed'
+                            : u.is_active
+                              ? 'text-oe-success hover:text-oe-danger hover:bg-oe-surface'
+                              : 'text-oe-muted hover:text-oe-success hover:bg-oe-surface'
+                        }`}
+                        title={isSuperAdmin ? 'Super admin cannot be deactivated' : u.is_active ? 'Deactivate user' : 'Activate user'}
                       >
                         {u.is_active ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
                       </button>
@@ -186,6 +195,7 @@ function AdminContent() {
           <div className="text-center py-12 text-oe-muted">No users found</div>
         ) : users.map(u => {
           const isOwnAccount = u.id === user?.id;
+          const isSuperAdmin = u.role === 'super_admin';
           const isRoleUpdating = updating === u.id + '-role';
           const isToggleUpdating = updating === u.id + '-toggle';
 
@@ -210,8 +220,15 @@ function AdminContent() {
                   </span>
                   <button
                     onClick={() => handleToggle(u.id)}
-                    disabled={isToggleUpdating}
-                    className={`p-1.5 rounded hover:bg-oe-surface transition-colors ${u.is_active ? 'text-oe-success hover:text-oe-danger' : 'text-oe-muted hover:text-oe-success'}`}
+                    disabled={isToggleUpdating || isSuperAdmin}
+                    className={`p-1.5 rounded transition-colors ${
+                      isSuperAdmin
+                        ? 'text-slate-300 cursor-not-allowed'
+                        : u.is_active
+                          ? 'text-oe-success hover:text-oe-danger hover:bg-oe-surface'
+                          : 'text-oe-muted hover:text-oe-success hover:bg-oe-surface'
+                    }`}
+                    title={isSuperAdmin ? 'Super admin cannot be deactivated' : undefined}
                   >
                     {u.is_active ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
                   </button>
@@ -226,12 +243,14 @@ function AdminContent() {
 
               <div>
                 <label className="label">Role</label>
-                {isOwnAccount ? (
+                {isOwnAccount || isSuperAdmin ? (
                   <div className="space-y-1">
                     <span className="badge-pending text-xs">
                       {ROLE_OPTIONS.find(r => r.value === u.role)?.label || u.role}
                     </span>
-                    <div className="text-xs text-oe-muted">Cannot change own role</div>
+                    <div className="text-xs text-oe-muted">
+                      {isOwnAccount ? 'Cannot change own role' : 'Protected role'}
+                    </div>
                   </div>
                 ) : (
                   <select
