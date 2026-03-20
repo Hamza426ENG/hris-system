@@ -11,6 +11,17 @@ const authenticate = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
+    // If token carries a jti, verify this session has not been revoked
+    if (decoded.jti) {
+      const session = await db.query(
+        'SELECT is_active FROM user_sessions WHERE jti = $1',
+        [decoded.jti]
+      );
+      if (session.rows.length > 0 && !session.rows[0].is_active) {
+        return res.status(401).json({ error: 'Session has been revoked' });
+      }
+    }
+
     const result = await db.query(
       'SELECT u.id, u.email, u.role, u.is_active, e.id as employee_id FROM users u LEFT JOIN employees e ON e.user_id = u.id WHERE u.id = $1',
       [decoded.userId]
@@ -20,7 +31,8 @@ const authenticate = async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid or inactive user' });
     }
 
-    req.user = result.rows[0];
+    // Attach jti so logout endpoint can revoke the session
+    req.user = { ...result.rows[0], jti: decoded.jti };
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') {

@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const db = require('../db');
 const { authenticate } = require('../middleware/auth');
 
@@ -35,10 +36,31 @@ router.post('/login', async (req, res) => {
 
     await db.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
 
-    const token = jwt.sign({ userId: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '8h' });
+    // Generate a unique JWT ID for this session (enables server-side revocation)
+    const jti = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000); // 12 hours
+
+    const token = jwt.sign(
+      { userId: user.id, role: user.role, jti },
+      process.env.JWT_SECRET,
+      { expiresIn: '12h' }
+    );
+
+    // Record session for developer visibility and server-side revocation
+    const ipAddress = (
+      req.headers['x-forwarded-for'] || req.socket?.remoteAddress || ''
+    ).split(',')[0].trim();
+    const userAgent = req.headers['user-agent'] || '';
+
+    // Best-effort session record — don't fail login if this errors
+    db.query(
+      'INSERT INTO user_sessions (user_id, jti, ip_address, user_agent, expires_at) VALUES ($1, $2, $3, $4, $5)',
+      [user.id, jti, ipAddress, userAgent, expiresAt]
+    ).catch(err => console.error('Session record error:', err.message));
 
     res.json({
       token,
+      expiresAt: expiresAt.toISOString(),
       user: {
         id: user.id,
         email: user.email,
@@ -49,6 +71,22 @@ router.post('/login', async (req, res) => {
         avatarUrl: user.avatar_url,
       },
     });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/auth/logout — revokes the current session in the database
+router.post('/logout', authenticate, async (req, res) => {
+  try {
+    if (req.user.jti) {
+      await db.query(
+        'UPDATE user_sessions SET is_active = FALSE, logout_at = NOW() WHERE jti = $1',
+        [req.user.jti]
+      );
+    }
+    res.json({ message: 'Logged out successfully' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error' });
