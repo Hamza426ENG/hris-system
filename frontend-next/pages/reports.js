@@ -313,7 +313,7 @@ function ReportsContent() {
                   </div>
                   <div className="md:hidden space-y-3">
                     {data.byDept.map(d => (
-                      <div key={d.department} className="bg-slate-50 rounded-xl p-3">
+                      <div key={d.department} className="bg-slate-50 dark:bg-white/6 rounded-xl p-3">
                         <div className="flex items-center justify-between mb-2">
                           <span className="font-medium text-oe-text text-sm">{d.department}</span>
                           <span className="text-xs text-oe-muted">{d.employees} employees</span>

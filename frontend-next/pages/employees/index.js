@@ -253,7 +253,7 @@ function EmployeesContent() {
               {employees.map(emp => (
                 <div
                   key={emp.id}
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 cursor-pointer"
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-oe-bg cursor-pointer"
                   onClick={() => router.push(`/employees/${emp.id}`)}
                 >
                   <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 ring-1 ring-oe-border">

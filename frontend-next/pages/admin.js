@@ -200,7 +200,7 @@ function AdminContent() {
           const isToggleUpdating = updating === u.id + '-toggle';
 
           return (
-            <div key={u.id} className="bg-white border border-oe-border rounded-xl p-4 space-y-3">
+            <div key={u.id} className="bg-white dark:bg-oe-card border border-oe-border rounded-xl p-4 space-y-3">
               <div className="flex items-center gap-3">
                 <Avatar
                   src={u.avatar_url}
@@ -237,8 +237,8 @@ function AdminContent() {
 
               <div className="flex flex-wrap gap-2 text-xs text-oe-muted">
                 {u.department_name && <span className="px-2 py-0.5 bg-slate-100 rounded">{u.department_name}</span>}
-                {u.emp_code && <span className="px-2 py-0.5 bg-slate-100 rounded">{u.emp_code}</span>}
-                <span className="px-2 py-0.5 bg-slate-100 rounded">Last login: {fmtDate(u.last_login)}</span>
+                {u.emp_code && <span className="px-2 py-0.5 bg-slate-100 dark:bg-white/10 rounded">{u.emp_code}</span>}
+                <span className="px-2 py-0.5 bg-slate-100 dark:bg-white/10 rounded">Last login: {fmtDate(u.last_login)}</span>
               </div>
 
               <div>

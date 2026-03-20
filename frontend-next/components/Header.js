@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
-import { Menu, Bell, LogOut, User, ChevronDown, CheckCircle2, Clock, Megaphone } from 'lucide-react';
+import { Menu, Bell, LogOut, User, ChevronDown, CheckCircle2, Clock, Megaphone, Sun, Moon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { leavesAPI, announcementsAPI } from '../services/api';
 
 const PAGE_TITLES = {
@@ -18,6 +19,7 @@ const PAGE_TITLES = {
 
 export default function Header({ sidebarOpen, setSidebarOpen }) {
   const { user, logout } = useAuth();
+  const { dark, toggle: toggleTheme } = useTheme();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -135,7 +137,7 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
   const initials = user ? `${user.firstName?.[0] || ''}${user.lastName?.[0] || ''}`.toUpperCase() : 'U';
 
   return (
-    <header className="h-16 bg-white border-b border-oe-border flex items-center justify-between px-4 sm:px-6 flex-shrink-0 shadow-sm">
+    <header className="h-16 bg-oe-surface border-b border-oe-border flex items-center justify-between px-4 sm:px-6 flex-shrink-0 shadow-sm">
       <div className="flex items-center gap-3 sm:gap-4 min-w-0">
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -147,6 +149,15 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+        {/* Dark mode toggle */}
+        <button
+          onClick={toggleTheme}
+          title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+          className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-oe-muted hover:text-oe-text hover:bg-oe-bg transition-colors"
+        >
+          {dark ? <Sun size={17} /> : <Moon size={17} />}
+        </button>
+
         {/* Notifications */}
         <div className="relative" ref={notifRef}>
           <button
@@ -162,8 +173,8 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
           </button>
 
           {notifOpen && (
-            <div className="absolute right-0 mt-1 w-[calc(100vw-2rem)] max-w-sm sm:w-80 bg-white border border-oe-border rounded-xl shadow-lg z-50 overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-oe-border bg-slate-50">
+            <div className="absolute right-0 mt-1 w-[calc(100vw-2rem)] max-w-sm sm:w-80 bg-oe-surface border border-oe-border rounded-xl shadow-lg z-50 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-oe-border bg-oe-bg">
                 <span className="text-sm font-semibold text-oe-text">Notifications</span>
                 {notifications.length > 0 && (
                   <span className="text-xs bg-oe-primary text-white rounded-full px-2 py-0.5">{notifications.length}</span>
@@ -184,9 +195,9 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
                     <button
                       key={n.id}
                       onClick={() => { router.push(n.path); setNotifOpen(false); }}
-                      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-slate-50 transition-colors border-b border-oe-border last:border-0 text-left"
+                      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-oe-bg transition-colors border-b border-oe-border last:border-0 text-left"
                     >
-                      <div className={`mt-0.5 flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${n.type === 'leave' ? 'bg-amber-100 text-amber-600' : 'bg-blue-100 text-blue-600'}`}>
+                      <div className={`mt-0.5 flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${n.type === 'leave' ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400' : 'bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-400'}`}>
                         {n.type === 'leave' ? <Clock size={14} /> : <Megaphone size={14} />}
                       </div>
                       <div className="flex-1 min-w-0">
@@ -199,7 +210,7 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
                 )}
               </div>
               {notifications.length > 0 && (
-                <div className="px-4 py-2.5 border-t border-oe-border bg-slate-50">
+                <div className="px-4 py-2.5 border-t border-oe-border bg-oe-bg">
                   <button
                     onClick={() => { router.push('/leaves'); setNotifOpen(false); }}
                     className="text-xs text-oe-primary hover:underline w-full text-center"
@@ -229,15 +240,15 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
           </button>
 
           {menuOpen && (
-            <div className="absolute right-0 mt-1 w-48 bg-white border border-oe-border rounded-xl shadow-lg z-50 overflow-hidden">
-              <div className="p-3 border-b border-oe-border bg-slate-50">
+            <div className="absolute right-0 mt-1 w-48 bg-oe-surface border border-oe-border rounded-xl shadow-lg z-50 overflow-hidden">
+              <div className="p-3 border-b border-oe-border bg-oe-bg">
                 <div className="text-sm font-medium text-oe-text">{user?.firstName} {user?.lastName}</div>
                 <div className="text-xs text-oe-muted">{user?.email}</div>
               </div>
               {user?.employeeId && (
                 <button
                   onClick={() => { router.push(`/employees/${user.employeeId}`); setMenuOpen(false); }}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-oe-muted hover:text-oe-text hover:bg-slate-50 transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-oe-muted hover:text-oe-text hover:bg-oe-bg transition-colors"
                 >
                   <User size={14} /> My Profile
                 </button>

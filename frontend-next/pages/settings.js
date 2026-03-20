@@ -155,7 +155,7 @@ function SettingsContent() {
           </div>
           <div className="md:hidden space-y-3">
             {positions.map(p => (
-              <div key={p.id} className="bg-white border border-oe-border rounded-xl p-4">
+              <div key={p.id} className="bg-white dark:bg-oe-card border border-oe-border rounded-xl p-4">
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-oe-text text-sm">{p.title}</div>

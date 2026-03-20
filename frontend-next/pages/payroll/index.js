@@ -152,7 +152,7 @@ function PayrollContent() {
         ) : runs.map(r => (
           <div
             key={r.id}
-            className="bg-white border border-oe-border rounded-xl p-4 cursor-pointer hover:border-oe-primary/30 transition-colors"
+            className="bg-white dark:bg-oe-card border border-oe-border rounded-xl p-4 cursor-pointer hover:border-oe-primary/30 transition-colors"
             onClick={() => router.push(`/payroll/${r.id}`)}
           >
             <div className="flex items-start justify-between mb-3 gap-2">
@@ -165,15 +165,15 @@ function PayrollContent() {
             </div>
             {(r.total_gross || r.total_net) && (
               <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="bg-slate-50 rounded-lg p-2">
+                <div className="bg-slate-50 dark:bg-white/6 rounded-lg p-2">
                   <div className="text-xs text-oe-muted mb-0.5">Gross</div>
                   <div className="text-sm font-semibold text-oe-success">{r.total_gross ? fmtCurrency(r.total_gross) : '-'}</div>
                 </div>
-                <div className="bg-slate-50 rounded-lg p-2">
+                <div className="bg-slate-50 dark:bg-white/6 rounded-lg p-2">
                   <div className="text-xs text-oe-muted mb-0.5">Deductions</div>
                   <div className="text-sm font-semibold text-oe-danger">{r.total_deductions ? `-${fmtCurrency(r.total_deductions)}` : '-'}</div>
                 </div>
-                <div className="bg-slate-50 rounded-lg p-2">
+                <div className="bg-slate-50 dark:bg-white/6 rounded-lg p-2">
                   <div className="text-xs text-oe-muted mb-0.5">Net</div>
                   <div className="text-sm font-semibold text-oe-primary">{r.total_net ? fmtCurrency(r.total_net) : '-'}</div>
                 </div>

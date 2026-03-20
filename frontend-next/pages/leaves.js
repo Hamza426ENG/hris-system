@@ -219,7 +219,7 @@ function LeavesContent() {
         ) : leaves.length === 0 ? (
           <div className="text-center py-12 text-oe-muted">No leave requests found</div>
         ) : leaves.map(l => (
-          <div key={l.id} className="bg-white border border-oe-border rounded-xl p-4 space-y-3">
+          <div key={l.id} className="bg-white dark:bg-oe-card border border-oe-border rounded-xl p-4 space-y-3">
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <div className="w-8 h-8 gradient-bg rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0">

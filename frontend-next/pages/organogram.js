@@ -92,7 +92,7 @@ function OrganogramContent() {
 
   return (
     <div className="space-y-4">
-      <div className="md:hidden flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-700">
+      <div className="md:hidden flex items-center gap-2 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2 text-xs text-violet-700">
         <Smartphone size={14} className="flex-shrink-0" />
         <span>Rotate your device to landscape for the best view. Pinch to zoom and scroll to navigate.</span>
       </div>

@@ -224,7 +224,7 @@ function SalaryContent() {
           return (
             <div
               key={s.id}
-              className="bg-white border border-oe-border rounded-xl p-4 cursor-pointer hover:border-oe-primary/30 transition-colors"
+              className="bg-white dark:bg-oe-card border border-oe-border rounded-xl p-4 cursor-pointer hover:border-oe-primary/30 transition-colors"
               onClick={() => router.push(`/employees/${s.employee_id}`)}
             >
               <div className="flex items-center gap-3 mb-3">
@@ -238,15 +238,15 @@ function SalaryContent() {
                 <div className="text-xs text-oe-muted flex-shrink-0">{fmtDate(s.effective_date)}</div>
               </div>
               <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="bg-slate-50 rounded-lg p-2">
+                <div className="bg-slate-50 dark:bg-white/6 rounded-lg p-2">
                   <div className="text-xs text-oe-muted mb-0.5">Gross</div>
                   <div className="text-sm font-semibold text-oe-success">{fmtCurrency(s.gross_salary)}</div>
                 </div>
-                <div className="bg-slate-50 rounded-lg p-2">
+                <div className="bg-slate-50 dark:bg-white/6 rounded-lg p-2">
                   <div className="text-xs text-oe-muted mb-0.5">Deductions</div>
                   <div className="text-sm font-semibold text-oe-danger">-{fmtCurrency(deductions)}</div>
                 </div>
-                <div className="bg-slate-50 rounded-lg p-2">
+                <div className="bg-slate-50 dark:bg-white/6 rounded-lg p-2">
                   <div className="text-xs text-oe-muted mb-0.5">Net</div>
                   <div className="text-sm font-semibold text-oe-primary">{fmtCurrency(s.net_salary)}</div>
                 </div>
