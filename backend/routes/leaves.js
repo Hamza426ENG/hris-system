@@ -1,6 +1,6 @@
 const express = require('express');
 const db = require('../db');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 router.use(authenticate);
@@ -44,6 +44,7 @@ router.get('/', async (req, res) => {
       WHERE ${where.join(' AND ')}
       ORDER BY lr.created_at DESC
     `, params);
+    res.set('Cache-Control', 'private, max-age=20');
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -258,8 +259,8 @@ router.put('/:id/cancel', async (req, res) => {
   }
 });
 
-// Leave type CRUD
-router.post('/types', async (req, res) => {
+// Leave type CRUD (admin only)
+router.post('/types', authorize('super_admin', 'hr_admin'), async (req, res) => {
   try {
     const { name, code, description, days_allowed, carry_forward, max_carry_forward_days, is_paid, requires_document, notice_days, color } = req.body;
     const result = await db.query(
@@ -272,7 +273,7 @@ router.post('/types', async (req, res) => {
   }
 });
 
-router.put('/types/:id', async (req, res) => {
+router.put('/types/:id', authorize('super_admin', 'hr_admin'), async (req, res) => {
   try {
     const { name, description, days_allowed, carry_forward, max_carry_forward_days, is_paid, color } = req.body;
     const result = await db.query(

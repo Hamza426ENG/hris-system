@@ -5,7 +5,10 @@ node_modules/
 .next/
 out/
 
-# Environment variables
+# Static export staging folder (generated — do not commit)
+_serve_root/
+
+# Environment variables (copy .env.example → .env.local)
 .env
 .env.local
 .env.development.local

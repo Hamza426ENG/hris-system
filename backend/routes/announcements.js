@@ -16,6 +16,7 @@ router.get('/', async (req, res) => {
       ORDER BY a.created_at DESC
       LIMIT 20
     `);
+    res.set('Cache-Control', 'private, max-age=30');
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });

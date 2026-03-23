@@ -1,6 +1,6 @@
 const express = require('express');
 const db = require('../db');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 router.use(authenticate);
@@ -46,7 +46,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', authorize('super_admin', 'hr_admin'), async (req, res) => {
   try {
     const { name, code, description, parent_id, head_employee_id, budget, location } = req.body;
     const result = await db.query(
@@ -59,7 +59,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', authorize('super_admin', 'hr_admin'), async (req, res) => {
   try {
     const { name, code, description, parent_id, head_employee_id, budget, location } = req.body;
     const result = await db.query(
@@ -73,7 +73,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authorize('super_admin', 'hr_admin'), async (req, res) => {
   try {
     await db.query('UPDATE departments SET is_active = FALSE WHERE id = $1', [req.params.id]);
     res.json({ message: 'Department deactivated' });

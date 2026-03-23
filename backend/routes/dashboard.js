@@ -68,6 +68,7 @@ router.get('/stats', async (req, res) => {
       `),
     ]);
 
+    res.set('Cache-Control', 'private, max-age=30');
     res.json({
       stats: {
         totalEmployees: parseInt(totalEmp.rows[0].count),

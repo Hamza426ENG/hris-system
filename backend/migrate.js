@@ -110,6 +110,84 @@ async function runAdditiveMigrations() {
       ORDER BY s.logged_in_at DESC
     `);
 
+    // ── attendance_records ─────────────────────────────────────────────────────
+    // Daily attendance tracking: check-in / check-out per employee per day.
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS attendance_records (
+        id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        employee_id   UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        date          DATE NOT NULL DEFAULT CURRENT_DATE,
+        check_in      TIMESTAMP WITH TIME ZONE,
+        check_out     TIMESTAMP WITH TIME ZONE,
+        work_hours    DECIMAL(5,2),
+        status        VARCHAR(20) DEFAULT 'present',
+        notes         TEXT,
+        created_at    TIMESTAMP DEFAULT NOW(),
+        updated_at    TIMESTAMP DEFAULT NOW(),
+        UNIQUE(employee_id, date)
+      )
+    `);
+
+    await db.query(
+      'CREATE INDEX IF NOT EXISTS idx_attendance_employee_date ON attendance_records(employee_id, date)'
+    );
+    await db.query(
+      'CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance_records(date)'
+    );
+
+    // ── Add missing columns to employees table ─────────────────────────────────
+    // Performance tracking, shift time, work location, insurance, and I/O tracking
+    const columns_to_add = [
+      { name: 'shift_time', sql: `ALTER TABLE employees ADD COLUMN IF NOT EXISTS shift_time VARCHAR(20) DEFAULT '09:00 AM'` },
+      { name: 'wfh_percentage', sql: `ALTER TABLE employees ADD COLUMN IF NOT EXISTS wfh_percentage DECIMAL(5,2) DEFAULT 0` },
+      { name: 'wfo_percentage', sql: `ALTER TABLE employees ADD COLUMN IF NOT EXISTS wfo_percentage DECIMAL(5,2) DEFAULT 0` },
+      { name: 'missing_io', sql: `ALTER TABLE employees ADD COLUMN IF NOT EXISTS missing_io BOOLEAN DEFAULT FALSE` },
+      { name: 'life_insurance_group', sql: `ALTER TABLE employees ADD COLUMN IF NOT EXISTS life_insurance_group VARCHAR(200)` },
+      { name: 'health_insurance_group', sql: `ALTER TABLE employees ADD COLUMN IF NOT EXISTS health_insurance_group VARCHAR(200)` },
+      { name: 'actual_time', sql: `ALTER TABLE employees ADD COLUMN IF NOT EXISTS actual_time DECIMAL(5,2) DEFAULT 0` },
+      { name: 'active_time', sql: `ALTER TABLE employees ADD COLUMN IF NOT EXISTS active_time DECIMAL(5,2) DEFAULT 0` },
+      { name: 'total_hours', sql: `ALTER TABLE employees ADD COLUMN IF NOT EXISTS total_hours DECIMAL(7,2) DEFAULT 0` },
+    ];
+
+    for (const col of columns_to_add) {
+      try {
+        await db.query(col.sql);
+      } catch (err) {
+        // Column might already exist, ignore
+      }
+    }
+
+    // ── performance_records ────────────────────────────────────────────────────
+    // Tracks performance metrics per employee per period (week/month)
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS performance_records (
+        id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        employee_id       UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        period_start      DATE NOT NULL,
+        period_end        DATE NOT NULL,
+        productivity      DECIMAL(5,2) DEFAULT 0,
+        knowledge         DECIMAL(5,2) DEFAULT 0,
+        attitude          DECIMAL(5,2) DEFAULT 0,
+        discipline        DECIMAL(5,2) DEFAULT 0,
+        productivity_pct  DECIMAL(5,2) DEFAULT 0,
+        knowledge_pct     DECIMAL(5,2) DEFAULT 0,
+        attitude_pct      DECIMAL(5,2) DEFAULT 0,
+        discipline_pct    DECIMAL(5,2) DEFAULT 0,
+        total_pct         DECIMAL(5,2) DEFAULT 0,
+        notes             TEXT,
+        created_at        TIMESTAMP DEFAULT NOW(),
+        updated_at        TIMESTAMP DEFAULT NOW(),
+        UNIQUE(employee_id, period_start, period_end)
+      )
+    `);
+
+    await db.query(
+      'CREATE INDEX IF NOT EXISTS idx_performance_employee ON performance_records(employee_id)'
+    );
+    await db.query(
+      'CREATE INDEX IF NOT EXISTS idx_performance_period ON performance_records(period_start, period_end)'
+    );
+
     console.log('Additive migrations completed.');
   } catch (err) {
     console.error('Additive migration error:', err.message);

@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const db = require('../db');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 router.use(authenticate);
@@ -87,14 +87,31 @@ router.get('/:id', async (req, res) => {
     `, [req.params.id]);
 
     if (result.rows.length === 0) return res.status(404).json({ error: 'Employee not found' });
-    res.json(result.rows[0]);
+    
+    const employee = result.rows[0];
+
+    // Fetch latest performance record
+    const perfResult = await db.query(`
+      SELECT * FROM performance_records
+      WHERE employee_id = $1
+      ORDER BY period_end DESC
+      LIMIT 1
+    `, [req.params.id]);
+
+    // Add Cache-Control header to prevent StrictMode double-calls
+    res.set('Cache-Control', 'private, max-age=10');
+    
+    res.json({
+      ...employee,
+      performance: perfResult.rows[0] || null,
+    });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// POST /api/employees
-router.post('/', async (req, res) => {
+// POST /api/employees (admin only)
+router.post('/', authorize('super_admin', 'hr_admin'), async (req, res) => {
   try {
     const {
       first_name, last_name, middle_name, date_of_birth, gender, marital_status,
@@ -161,9 +178,14 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT /api/employees/:id
+// PUT /api/employees/:id (admin or self)
 router.put('/:id', async (req, res) => {
   try {
+    // Allow admins or employees updating their own info
+    if (!['super_admin', 'hr_admin'].includes(req.user.role) && req.user.employee_id !== parseInt(req.params.id)) {
+      return res.status(403).json({ error: 'You can only update your own profile' });
+    }
+
     const {
       first_name, last_name, middle_name, date_of_birth, gender, marital_status,
       nationality, national_id, personal_email, work_email, phone_primary, phone_secondary,
@@ -202,8 +224,8 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/employees/:id
-router.delete('/:id', async (req, res) => {
+// DELETE /api/employees/:id (admin only)
+router.delete('/:id', authorize('super_admin', 'hr_admin'), async (req, res) => {
   try {
     await db.query("UPDATE employees SET status = 'terminated', updated_at = NOW() WHERE id = $1", [req.params.id]);
     res.json({ message: 'Employee deactivated' });

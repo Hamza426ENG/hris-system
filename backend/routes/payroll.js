@@ -4,10 +4,9 @@ const { authenticate, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 router.use(authenticate);
-router.use(authorize('super_admin', 'hr_admin'));
 
-// GET all payroll runs
-router.get('/', async (req, res) => {
+// GET all payroll runs (admin only)
+router.get('/', authorize('super_admin', 'hr_admin'), async (req, res) => {
   try {
     const result = await db.query(`
       SELECT pr.*,
@@ -22,7 +21,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET single payroll run with items
+// GET single payroll run with items (admin or employee viewing own)
 router.get('/:id', async (req, res) => {
   try {
     const [run, items] = await Promise.all([
@@ -42,14 +41,24 @@ router.get('/:id', async (req, res) => {
       `, [req.params.id]),
     ]);
     if (run.rows.length === 0) return res.status(404).json({ error: 'Not found' });
-    res.json({ ...run.rows[0], items: items.rows });
+    
+    // If user is not admin, ensure they can only view their own payroll
+    if (!['super_admin', 'hr_admin'].includes(req.user.role)) {
+      const ownItem = items.rows.find(item => item.employee_id === req.user.employee_id);
+      if (!ownItem) {
+        return res.status(403).json({ error: 'You can only view your own payroll' });
+      }
+      res.json({ ...run.rows[0], items: [ownItem] });
+    } else {
+      res.json({ ...run.rows[0], items: items.rows });
+    }
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// POST create payroll run
-router.post('/', async (req, res) => {
+// POST create payroll run (admin only)
+router.post('/', authorize('super_admin', 'hr_admin'), async (req, res) => {
   try {
     const { period_start, period_end, pay_date, description } = req.body;
     const month = new Date(period_start).getMonth() + 1;
@@ -65,8 +74,8 @@ router.post('/', async (req, res) => {
   }
 });
 
-// POST /api/payroll/:id/generate - generate payroll items from salary structures
-router.post('/:id/generate', async (req, res) => {
+// POST /api/payroll/:id/generate - generate payroll items from salary structures (admin only)
+router.post('/:id/generate', authorize('super_admin', 'hr_admin'), async (req, res) => {
   try {
     const run = await db.query('SELECT * FROM payroll_runs WHERE id = $1', [req.params.id]);
     if (run.rows.length === 0) return res.status(404).json({ error: 'Not found' });
@@ -135,8 +144,8 @@ router.post('/:id/generate', async (req, res) => {
   }
 });
 
-// PUT /api/payroll/:id/complete
-router.put('/:id/complete', async (req, res) => {
+// PUT /api/payroll/:id/complete (admin only)
+router.put('/:id/complete', authorize('super_admin', 'hr_admin'), async (req, res) => {
   try {
     const result = await db.query(
       "UPDATE payroll_runs SET status='completed', approved_by=$1, approved_at=NOW() WHERE id=$2 RETURNING *",
@@ -149,8 +158,8 @@ router.put('/:id/complete', async (req, res) => {
   }
 });
 
-// PUT /api/payroll/:id/cancel
-router.put('/:id/cancel', async (req, res) => {
+// PUT /api/payroll/:id/cancel (admin only)
+router.put('/:id/cancel', authorize('super_admin', 'hr_admin'), async (req, res) => {
   try {
     const result = await db.query(
       "UPDATE payroll_runs SET status='cancelled' WHERE id=$1 RETURNING *",
@@ -162,8 +171,8 @@ router.put('/:id/cancel', async (req, res) => {
   }
 });
 
-// PUT update payroll item
-router.put('/items/:item_id', async (req, res) => {
+// PUT update payroll item (admin only)
+router.put('/items/:item_id', authorize('super_admin', 'hr_admin'), async (req, res) => {
   try {
     const { bonus, overtime_pay, other_deductions, notes } = req.body;
     const result = await db.query(`

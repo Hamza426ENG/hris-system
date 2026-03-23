@@ -78,18 +78,42 @@ router.post('/login', async (req, res) => {
 });
 
 // POST /api/auth/logout — revokes the current session in the database
-router.post('/logout', authenticate, async (req, res) => {
+// Custom middleware that validates JWT but allows revoked sessions to logout
+router.post('/logout', async (req, res) => {
   try {
-    if (req.user.jti) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No token provided' });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Validate user exists and is active (but allow revoked sessions)
+    const result = await db.query(
+      'SELECT u.id, u.email, u.role, u.is_active FROM users u WHERE u.id = $1',
+      [decoded.userId]
+    );
+
+    if (result.rows.length === 0 || !result.rows[0].is_active) {
+      return res.status(401).json({ error: 'Invalid or inactive user' });
+    }
+
+    // Revoke the session if jti exists
+    if (decoded.jti) {
       await db.query(
         'UPDATE user_sessions SET is_active = FALSE, logout_at = NOW() WHERE jti = $1',
-        [req.user.jti]
+        [decoded.jti]
       );
     }
+
     res.json({ message: 'Logged out successfully' });
   } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expired' });
+    }
     console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(401).json({ error: 'Invalid token' });
   }
 });
 
@@ -100,6 +124,7 @@ router.get('/me', authenticate, async (req, res) => {
       'SELECT u.id, u.email, u.role, u.last_login, e.id as employee_id, e.first_name, e.last_name, e.avatar_url, e.department_id, e.position_id FROM users u LEFT JOIN employees e ON e.user_id = u.id WHERE u.id = $1',
       [req.user.id]
     );
+    res.set('Cache-Control', 'private, max-age=10');
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });

@@ -1,8 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  reactStrictMode: true,
   images: { unoptimized: true },
-  env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'https://postgres-production-af91.up.railway.app/api',
-  },
+  // NEXT_PUBLIC_API_URL must be set in .env.local (or environment) — no hardcoded fallback
 }
+
 module.exports = nextConfig
