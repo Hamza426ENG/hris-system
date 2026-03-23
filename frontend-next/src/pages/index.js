@@ -249,7 +249,7 @@ function DashboardContent() {
         </div>
 
         {/* Col 4 — Live Announcements ticker */}
-        <div className="xl:col-span-1">
+        <div className="xl:col-span-1 self-start h-72">
           <AnnouncementTicker items={announcements} onViewAll={() => router.push('/announcements')} />
         </div>
 

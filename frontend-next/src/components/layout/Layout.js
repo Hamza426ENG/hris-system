@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import StartupNotificationModal from '@/components/common/StartupNotificationModal';
 
 export default function Layout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -14,6 +15,7 @@ export default function Layout({ children }) {
           {children}
         </main>
       </div>
+      <StartupNotificationModal />
     </div>
   );
 }
