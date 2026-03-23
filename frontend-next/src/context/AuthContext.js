@@ -93,7 +93,9 @@ export const AuthProvider = ({ children }) => {
   const permissions = {
     isAdmin: user?.role === 'super_admin',
     isHR: ['super_admin', 'hr_admin'].includes(user?.role),
-    isTeamLead: ['super_admin', 'hr_admin', 'team_lead'].includes(user?.role),
+    // isTeamLead covers team leads and managers (can approve leaves, view team data)
+    isTeamLead: ['super_admin', 'hr_admin', 'team_lead', 'manager'].includes(user?.role),
+    isManager: ['super_admin', 'hr_admin', 'manager'].includes(user?.role),
     canManageAll: ['super_admin', 'hr_admin'].includes(user?.role),
     isEmployee: user?.role === 'employee',
     isSelfOnly: user?.role === 'employee',

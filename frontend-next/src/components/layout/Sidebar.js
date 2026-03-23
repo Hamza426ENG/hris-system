@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import {
   LayoutDashboard, Users, GitBranch, Calendar, DollarSign,
-  BarChart3, Settings, ChevronLeft, Wallet, ShieldCheck, X
+  BarChart3, Settings, ChevronLeft, Wallet, ShieldCheck, X, Megaphone
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import EdgeLogo from '@/components/common/EdgeLogo';
@@ -12,28 +12,29 @@ const NAV_GROUPS = [
   {
     label: 'Overview',
     items: [
-      { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['super_admin', 'hr_admin', 'team_lead', 'employee'] },
+      { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['super_admin', 'hr_admin', 'manager', 'team_lead', 'employee'] },
+      { to: '/announcements', icon: Megaphone, label: 'Announcements', roles: ['super_admin', 'hr_admin', 'manager', 'team_lead', 'employee'] },
     ],
   },
   {
     label: 'People',
     items: [
-      { to: '/employees', icon: Users, label: 'Employees', roles: ['super_admin', 'hr_admin', 'team_lead', 'employee'] },
-      { to: '/organogram', icon: GitBranch, label: 'Organogram', roles: ['super_admin', 'hr_admin', 'team_lead'] },
-      { to: '/leaves', icon: Calendar, label: 'Leave Management', roles: ['super_admin', 'hr_admin', 'team_lead', 'employee'] },
+      { to: '/employees', icon: Users, label: 'Employees', roles: ['super_admin', 'hr_admin', 'manager', 'team_lead', 'employee'] },
+      { to: '/organogram', icon: GitBranch, label: 'Organogram', roles: ['super_admin', 'hr_admin', 'manager', 'team_lead'] },
+      { to: '/leaves', icon: Calendar, label: 'Leave Management', roles: ['super_admin', 'hr_admin', 'manager', 'team_lead', 'employee'] },
     ],
   },
   {
     label: 'Finance',
     items: [
-      { to: '/salary', icon: DollarSign, label: 'Salary & Comp', roles: ['super_admin', 'hr_admin', 'team_lead', 'employee'] },
-      { to: '/payroll', icon: Wallet, label: 'Payroll', roles: ['super_admin', 'hr_admin'] },
+      { to: '/salary', icon: DollarSign, label: 'Salary & Comp', roles: ['super_admin', 'hr_admin', 'manager', 'team_lead', 'employee'] },
+      { to: '/payroll', icon: Wallet, label: 'Payroll', roles: ['super_admin', 'hr_admin', 'manager'] },
     ],
   },
   {
     label: 'System',
     items: [
-      { to: '/reports', icon: BarChart3, label: 'Reports', roles: ['super_admin', 'hr_admin'] },
+      { to: '/reports', icon: BarChart3, label: 'Reports', roles: ['super_admin', 'hr_admin', 'manager'] },
       { to: '/settings', icon: Settings, label: 'Settings', roles: ['super_admin', 'hr_admin'] },
       { to: '/admin', icon: ShieldCheck, label: 'Admin Panel', roles: ['super_admin'] },
     ],
@@ -43,6 +44,7 @@ const NAV_GROUPS = [
 const ROLE_BADGE = {
   super_admin: { label: 'Super Admin', cls: 'bg-violet-100 text-violet-700 border border-violet-200 dark:bg-violet-500/20 dark:text-violet-300 dark:border-violet-500/30' },
   hr_admin:    { label: 'HR Admin',    cls: 'bg-violet-100 text-violet-700 border border-violet-200 dark:bg-violet-500/20 dark:text-violet-300 dark:border-violet-500/30' },
+  manager:     { label: 'Manager',     cls: 'bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/30' },
   team_lead:   { label: 'Team Lead',   cls: 'bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/30' },
   employee:    { label: 'Employee',    cls: 'bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-500/20 dark:text-slate-400 dark:border-slate-500/30' },
 };
@@ -73,7 +75,7 @@ export default function Sidebar({ open, setOpen }) {
           </div>
           {(open || isDrawer) && (
             <div className="overflow-hidden">
-              <div className="text-[11px] font-semibold text-slate-400 dark:text-white/50 uppercase tracking-widest leading-none">HRIS Platform</div>
+              <div className="text-[11px] font-semibold text-slate-400 dark:text-white/50 uppercase tracking-widest leading-none">EdgeVerse</div>
             </div>
           )}
         </div>

@@ -26,9 +26,31 @@ router.get('/stats', async (req, res) => {
         SELECT id, first_name, last_name, date_of_birth, avatar_url
         FROM employees
         WHERE status = 'active'
-          AND TO_CHAR(date_of_birth, 'MM-DD') BETWEEN TO_CHAR(NOW(), 'MM-DD')
-          AND TO_CHAR(NOW() + INTERVAL '30 days', 'MM-DD')
-        ORDER BY TO_CHAR(date_of_birth, 'MM-DD')
+          AND date_of_birth IS NOT NULL
+          AND (
+            -- Normal case: window stays within same year (e.g. Aug→Sep)
+            (
+              TO_CHAR(CURRENT_DATE + INTERVAL '30 days', 'MMDD') >= TO_CHAR(CURRENT_DATE, 'MMDD')
+              AND TO_CHAR(date_of_birth, 'MMDD') >= TO_CHAR(CURRENT_DATE, 'MMDD')
+              AND TO_CHAR(date_of_birth, 'MMDD') <= TO_CHAR(CURRENT_DATE + INTERVAL '30 days', 'MMDD')
+            )
+            OR
+            -- Year-wrap case: window crosses Dec→Jan
+            (
+              TO_CHAR(CURRENT_DATE + INTERVAL '30 days', 'MMDD') < TO_CHAR(CURRENT_DATE, 'MMDD')
+              AND (
+                TO_CHAR(date_of_birth, 'MMDD') >= TO_CHAR(CURRENT_DATE, 'MMDD')
+                OR TO_CHAR(date_of_birth, 'MMDD') <= TO_CHAR(CURRENT_DATE + INTERVAL '30 days', 'MMDD')
+              )
+            )
+          )
+        ORDER BY
+          CASE
+            WHEN TO_CHAR(date_of_birth, 'MMDD') >= TO_CHAR(CURRENT_DATE, 'MMDD')
+            THEN TO_CHAR(date_of_birth, 'MMDD')
+            ELSE '9999'
+          END,
+          TO_CHAR(date_of_birth, 'MMDD')
         LIMIT 5
       `),
       db.query(`

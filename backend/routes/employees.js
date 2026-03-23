@@ -26,6 +26,9 @@ router.get('/', async (req, res) => {
     if (employment_type) { where.push(`e.employment_type = $${i++}`); params.push(employment_type); }
 
     // Role-based filtering
+    // - team_lead: sees direct reports and self
+    // - manager: sees full employee list (senior enough to have company-wide visibility)
+    // - employee: sees only their own record
     const role = req.user.role;
     if (role === 'team_lead') {
       where.push(`(e.manager_id = $${i} OR e.id = $${i})`);
@@ -182,7 +185,7 @@ router.post('/', authorize('super_admin', 'hr_admin'), async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     // Allow admins or employees updating their own info
-    if (!['super_admin', 'hr_admin'].includes(req.user.role) && req.user.employee_id !== parseInt(req.params.id)) {
+    if (!['super_admin', 'hr_admin'].includes(req.user.role) && req.user.employee_id !== req.params.id) {
       return res.status(403).json({ error: 'You can only update your own profile' });
     }
 

@@ -5,6 +5,11 @@ const migrate = require('./migrate');
 
 const app = express();
 
+// Disable ETags so all successful responses return 200 (not 304 Not Modified).
+// ETags are useful for bandwidth reduction but cause confusion in development
+// and when clients expect fresh data on every request.
+app.set('etag', false);
+
 // Run DB migration on startup
 migrate().catch(console.error);
 

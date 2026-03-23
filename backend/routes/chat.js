@@ -27,37 +27,48 @@ Database tables and key columns:
 
 employees (id, employee_id, first_name, last_name, work_email, personal_email,
   phone_primary, date_of_birth, gender, nationality, department_id, position_id,
-  manager_id, employment_type [full_time|part_time|contract|intern],
-  status [active|inactive|on_leave], hire_date, termination_date, work_location,
-  skills, languages, city, country, avatar_url, created_at)
+  manager_id, employment_type [full_time|part_time|contract|intern|consultant],
+  status [active|inactive|on_leave|probation|terminated], hire_date, termination_date,
+  work_location, skills, languages, city, country, avatar_url, created_at)
 
 departments (id, name, code, description, head_employee_id, parent_id,
-  location, budget, is_active)
+  location, budget, headcount, is_active)
 
 positions (id, title, code, department_id, grade, level, min_salary, max_salary)
 
-users (id, email, role [super_admin|hr_admin|team_lead|employee], is_active)
+users (id, email, role [super_admin|hr_admin|manager|team_lead|employee], is_active)
 
 leave_requests (id, employee_id, leave_type_id, start_date, end_date,
-  total_days, status [pending|approved|rejected|cancelled], reason, created_at)
+  total_days, status [pending|approved|rejected|cancelled], reason, reviewed_by, reviewed_at, created_at)
 
-leave_types (id, name, code, days_allowed, is_paid, carry_forward)
+leave_types (id, name, code, days_allowed, is_paid, carry_forward, color)
 
 leave_balances (id, employee_id, leave_type_id, year, allocated_days,
-  used_days, remaining_days)
+  used_days, pending_days, carried_forward_days, available_days)
+  -- available_days = allocated_days + carried_forward_days - used_days - pending_days
 
-salary_structures (id, employee_id, effective_date, basic_salary,
-  house_allowance, transport_allowance, medical_allowance, other_allowances,
-  gross_salary, income_tax, social_security, other_deductions, net_salary,
-  is_active, currency)
+salary_structures (id, employee_id, effective_date, end_date, basic_salary,
+  housing_allowance, transport_allowance, meal_allowance, medical_allowance,
+  mobile_allowance, other_allowances, gross_salary,
+  tax_deduction, pension_deduction, health_insurance, other_deductions, net_salary,
+  currency, pay_frequency)
+  -- Use: ss.end_date IS NULL to get current (active) salary structure
 
-payroll_runs (id, period_start, period_end, status [draft|processing|completed|cancelled],
-  total_gross, total_deductions, total_net, employee_count, processed_at)
+payroll_runs (id, period_start, period_end, month, year,
+  status [draft|processing|completed|cancelled],
+  total_gross, total_deductions, total_net, total_employees, processed_at)
 
-payroll_items (id, payroll_run_id, employee_id, basic_salary, gross_salary,
-  total_deductions, net_salary, status)
+payroll_items (id, payroll_run_id, employee_id, basic_salary, housing_allowance,
+  transport_allowance, gross_salary, tax_deduction, pension_deduction,
+  health_insurance, total_deductions, net_salary, bonus, overtime_pay, leave_days_taken)
 
-announcements (id, title, content, priority, created_at)
+announcements (id, title, content, priority [normal|high|urgent], is_active, posted_by, expires_at, created_at)
+
+performance_records (id, employee_id, period_start, period_end,
+  productivity, knowledge, attitude, discipline,
+  productivity_pct, knowledge_pct, attitude_pct, discipline_pct, total_pct, notes)
+
+attendance_records (id, employee_id, date, check_in, check_out, work_hours, status, notes)
 
 Common JOINs:
 - employees e JOIN departments d ON d.id = e.department_id
@@ -66,7 +77,7 @@ Common JOINs:
 - departments d JOIN employees head ON head.id = d.head_employee_id (for dept head)
 - leave_requests lr JOIN employees e ON e.id = lr.employee_id
 - leave_requests lr JOIN leave_types lt ON lt.id = lr.leave_type_id
-- salary_structures ss ON ss.employee_id = e.id AND ss.is_active = true
+- salary_structures ss ON ss.employee_id = e.id AND ss.end_date IS NULL (current salary)
 
 Name search pattern: CONCAT(e.first_name, ' ', e.last_name) ILIKE '%name%'
   OR e.first_name ILIKE '%name%' OR e.last_name ILIKE '%name%'
@@ -180,6 +191,10 @@ router.post('/', async (req, res) => {
   const { messages } = req.body;
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'messages array required' });
+  }
+
+  if (!process.env.OPENAI_API_KEY) {
+    return res.status(503).json({ error: 'AI chat is not configured. Please set OPENAI_API_KEY in the server environment.' });
   }
 
   const systemPrompt = `You are an expert HR intelligence assistant for Edge HRIS with direct access to the company's live HR database.

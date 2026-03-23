@@ -20,7 +20,7 @@ router.get('/', async (req, res) => {
 
     // Role-based filtering
     const role = req.user.role;
-    if (role === 'team_lead') {
+    if (role === 'team_lead' || role === 'manager') {
       where.push(`(e.manager_id = $${i} OR lr.employee_id = $${i})`);
       params.push(req.user.employee_id);
       i++;
@@ -121,12 +121,21 @@ router.post('/', async (req, res) => {
     }
     if (half_day) days = 0.5;
 
-    // Check balance
+    // Check balance — reject if employee has insufficient available days
     const year = start.getFullYear();
     const balance = await db.query(
       'SELECT * FROM leave_balances WHERE employee_id = $1 AND leave_type_id = $2 AND year = $3',
       [employee_id, leave_type_id, year]
     );
+
+    if (balance.rows.length > 0) {
+      const avail = parseFloat(balance.rows[0].available_days) || 0;
+      if (avail < days) {
+        return res.status(400).json({
+          error: `Insufficient leave balance. Available: ${avail} day(s), requested: ${days} day(s).`,
+        });
+      }
+    }
 
     const result = await db.query(`
       INSERT INTO leave_requests (employee_id, leave_type_id, start_date, end_date, total_days, reason, half_day, half_day_period)
@@ -158,8 +167,8 @@ router.put('/:id/approve', async (req, res) => {
 
     if (lr.status !== 'pending') return res.status(400).json({ error: 'Leave is not pending' });
 
-    // Team lead can only approve leaves of their team members or own leaves
-    if (req.user.role === 'team_lead') {
+    // Team lead / manager can only approve leaves of their team members or own leaves
+    if (req.user.role === 'team_lead' || req.user.role === 'manager') {
       const empCheck = await db.query(
         'SELECT id FROM employees WHERE id = $1 AND (manager_id = $2 OR id = $2)',
         [lr.employee_id, req.user.employee_id]
@@ -201,8 +210,8 @@ router.put('/:id/reject', async (req, res) => {
 
     if (lr.status !== 'pending') return res.status(400).json({ error: 'Leave is not pending' });
 
-    // Team lead can only reject leaves of their team members or own leaves
-    if (req.user.role === 'team_lead') {
+    // Team lead / manager can only reject leaves of their team members or own leaves
+    if (req.user.role === 'team_lead' || req.user.role === 'manager') {
       const empCheck = await db.query(
         'SELECT id FROM employees WHERE id = $1 AND (manager_id = $2 OR id = $2)',
         [lr.employee_id, req.user.employee_id]

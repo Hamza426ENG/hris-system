@@ -1,6 +1,6 @@
 const express = require('express');
 const db = require('../db');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 router.use(authenticate);
@@ -90,8 +90,8 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT update salary
-router.put('/:id', async (req, res) => {
+// PUT update salary (admin only)
+router.put('/:id', authorize('super_admin', 'hr_admin'), async (req, res) => {
   try {
     const {
       basic_salary, housing_allowance, transport_allowance, meal_allowance,

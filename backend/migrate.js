@@ -188,6 +188,30 @@ async function runAdditiveMigrations() {
       'CREATE INDEX IF NOT EXISTS idx_performance_period ON performance_records(period_start, period_end)'
     );
 
+    // ── Add team_lead to user_role enum ────────────────────────────────────────
+    // The routes and frontend use 'team_lead' but it was missing from the DB enum.
+    // IF NOT EXISTS prevents errors on repeated runs (PostgreSQL 9.3+).
+    try {
+      await db.query(`ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'team_lead'`);
+    } catch (err) {
+      // Older PG versions without IF NOT EXISTS support — ignore if already exists
+      if (!err.message.includes('already exists')) {
+        console.warn('team_lead enum warning:', err.message);
+      }
+    }
+
+    // ── Ensure current-year leave balances exist for all active employees ──────
+    // Seed data only created 2025 balances; new years need balances too.
+    await db.query(`
+      INSERT INTO leave_balances (employee_id, leave_type_id, year, allocated_days)
+      SELECT e.id, lt.id, EXTRACT(YEAR FROM CURRENT_DATE)::int, lt.days_allowed
+      FROM employees e
+      CROSS JOIN leave_types lt
+      WHERE lt.is_active = TRUE
+        AND e.status IN ('active', 'probation')
+      ON CONFLICT (employee_id, leave_type_id, year) DO NOTHING
+    `);
+
     console.log('Additive migrations completed.');
   } catch (err) {
     console.error('Additive migration error:', err.message);

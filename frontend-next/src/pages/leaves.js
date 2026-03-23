@@ -17,7 +17,7 @@ function LeavesContent() {
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ status: '', year: new Date().getFullYear() });
   const isHR = ['super_admin', 'hr_admin'].includes(user?.role);
-  const canApprove = ['super_admin', 'hr_admin', 'team_lead'].includes(user?.role);
+  const canApprove = ['super_admin', 'hr_admin', 'team_lead', 'manager'].includes(user?.role);
   const [modal, setModal] = useState(null);
   const [selected, setSelected] = useState(null);
   const [reviewComment, setReviewComment] = useState('');

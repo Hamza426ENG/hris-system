@@ -10,6 +10,7 @@ import Layout from '@/components/layout/Layout';
 const ROLE_OPTIONS = [
   { value: 'super_admin', label: 'Super Admin' },
   { value: 'hr_admin', label: 'HR Admin' },
+  { value: 'manager', label: 'Manager' },
   { value: 'team_lead', label: 'Team Lead' },
   { value: 'employee', label: 'Employee' },
 ];

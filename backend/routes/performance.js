@@ -24,7 +24,7 @@ router.get('/employee/:id', async (req, res) => {
 });
 
 // POST /api/performance/employee/:id - Create or update performance record
-router.post('/employee/:id', authorize('super_admin', 'hr_admin', 'team_lead'), async (req, res) => {
+router.post('/employee/:id', authorize('super_admin', 'hr_admin', 'team_lead', 'manager'), async (req, res) => {
   try {
     const {
       period_start,

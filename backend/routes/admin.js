@@ -7,7 +7,7 @@ const router = express.Router();
 router.use(authenticate);
 router.use(authorize('super_admin'));
 
-const VALID_ROLES = ['super_admin', 'hr_admin', 'team_lead', 'employee'];
+const VALID_ROLES = ['super_admin', 'hr_admin', 'manager', 'team_lead', 'employee'];
 
 // GET /api/admin/users - list all users with employee info, paginated
 router.get('/users', async (req, res) => {
@@ -113,7 +113,7 @@ router.post('/users', async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10);
     const userRes = await db.query(
-      'INSERT INTO users (email, password, role, is_active) VALUES ($1, $2, $3, true) RETURNING id, email, role, is_active, created_at',
+      'INSERT INTO users (email, password_hash, role, is_active) VALUES ($1, $2, $3, true) RETURNING id, email, role, is_active, created_at',
       [email.toLowerCase(), hash, role]
     );
     const newUser = userRes.rows[0];

@@ -83,37 +83,40 @@ router.post('/logout', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'No token provided' });
+      return res.status(200).json({ message: 'Logged out' });
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Validate user exists and is active (but allow revoked sessions)
-    const result = await db.query(
-      'SELECT u.id, u.email, u.role, u.is_active FROM users u WHERE u.id = $1',
-      [decoded.userId]
-    );
-
-    if (result.rows.length === 0 || !result.rows[0].is_active) {
-      return res.status(401).json({ error: 'Invalid or inactive user' });
+    // Try full verification first; if token is expired, still decode to get jti
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (err) {
+      if (err.name === 'TokenExpiredError') {
+        decoded = jwt.decode(token); // decode without verification to retrieve jti
+      } else {
+        return res.status(200).json({ message: 'Logged out' }); // malformed token — nothing to revoke
+      }
     }
 
-    // Revoke the session if jti exists
+    if (!decoded?.userId) {
+      return res.status(200).json({ message: 'Logged out' });
+    }
+
+    // Revoke the session if jti exists (best-effort — don't fail logout on DB error)
     if (decoded.jti) {
       await db.query(
         'UPDATE user_sessions SET is_active = FALSE, logout_at = NOW() WHERE jti = $1',
         [decoded.jti]
-      );
+      ).catch(err => console.error('Session revoke error:', err.message));
     }
 
     res.json({ message: 'Logged out successfully' });
   } catch (err) {
-    if (err.name === 'TokenExpiredError') {
-      return res.status(401).json({ error: 'Token expired' });
-    }
     console.error(err);
-    res.status(401).json({ error: 'Invalid token' });
+    // Always return success on logout — client clears token regardless
+    res.status(200).json({ message: 'Logged out' });
   }
 });
 
