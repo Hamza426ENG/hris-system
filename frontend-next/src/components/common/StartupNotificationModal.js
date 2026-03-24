@@ -9,16 +9,38 @@ function fmtDate(d) {
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+// ── Per-user acknowledgement helpers (localStorage) ───────────────────────────
+const ACKED_KEY = 'hris_acked_anns';
+
+function getAckedIds(userId) {
+  try {
+    const stored = JSON.parse(localStorage.getItem(ACKED_KEY) || '{}');
+    return new Set(stored[userId] || []);
+  } catch { return new Set(); }
+}
+
+function saveAckedIds(userId, ids) {
+  try {
+    const stored = JSON.parse(localStorage.getItem(ACKED_KEY) || '{}');
+    const current = new Set(stored[userId] || []);
+    ids.forEach(id => current.add(String(id)));
+    stored[userId] = [...current];
+    localStorage.setItem(ACKED_KEY, JSON.stringify(stored));
+  } catch {}
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export default function StartupNotificationModal() {
   const { user, permissions } = useAuth();
   const router = useRouter();
 
-  const [open, setOpen] = useState(false);
-  const [visible, setVisible] = useState(false);
+  const [open, setOpen]                   = useState(false);
+  const [visible, setVisible]             = useState(false);
   const [pendingLeaves, setPendingLeaves] = useState([]);
   const [urgentAnnouncements, setUrgentAnn] = useState([]);
   const [assignedTickets, setAssignedTickets] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]             = useState(true);
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -29,7 +51,6 @@ export default function StartupNotificationModal() {
       setLoading(false);
       return;
     }
-    // Clear the flag so it won't show again on refresh
     sessionStorage.removeItem('hris_just_logged_in');
 
     setLoading(true);
@@ -40,9 +61,15 @@ export default function StartupNotificationModal() {
         ticketsAPI.list({ assigned_to: user.id, status: 'open', limit: 5 }).catch(() => ({ data: { data: [] } })),
       ]);
 
-      const leaves = leavesRes.status === 'fulfilled' ? (leavesRes.value.data || []).slice(0, 5) : [];
+      const leaves = leavesRes.status === 'fulfilled'
+        ? (leavesRes.value.data || []).slice(0, 5) : [];
+
+      // Filter out announcements the user has already acknowledged
+      const ackedIds = getAckedIds(user.id);
       const anns = annRes.status === 'fulfilled'
-        ? (annRes.value.data || []).filter(a => a.priority === 'urgent' || a.priority === 'high').slice(0, 4)
+        ? (annRes.value.data || [])
+            .filter(a => (a.priority === 'urgent' || a.priority === 'high') && !ackedIds.has(String(a.id)))
+            .slice(0, 4)
         : [];
 
       let tickets = [];
@@ -68,12 +95,24 @@ export default function StartupNotificationModal() {
 
   useEffect(() => { load(); }, [load]);
 
-  const goTo = (path) => {
+  // Mark a single announcement as acknowledged and navigate
+  const ackAndGo = (path, annIds = []) => {
+    if (annIds.length > 0) saveAckedIds(user.id, annIds);
     setVisible(false);
-    setTimeout(() => {
-      setOpen(false);
-      router.push(path);
-    }, 200);
+    setTimeout(() => { setOpen(false); router.push(path); }, 200);
+  };
+
+  // Acknowledge ALL currently shown announcements then navigate
+  const ackAllAnnsAndGo = (path) => {
+    const allIds = urgentAnnouncements.map(a => a.id);
+    ackAndGo(path, allIds);
+  };
+
+  // Close without navigating (still acks all announcements shown)
+  const dismiss = () => {
+    saveAckedIds(user.id, urgentAnnouncements.map(a => a.id));
+    setVisible(false);
+    setTimeout(() => setOpen(false), 200);
   };
 
   if (!open || loading) return null;
@@ -82,7 +121,7 @@ export default function StartupNotificationModal() {
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-      {/* Backdrop — no click handler, cannot dismiss */}
+      {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-200"
         style={{ opacity: visible ? 1 : 0 }}
@@ -121,7 +160,7 @@ export default function StartupNotificationModal() {
                 {pendingLeaves.map(l => (
                   <button
                     key={l.id}
-                    onClick={() => goTo('/leaves?status=pending')}
+                    onClick={() => ackAndGo('/leaves?status=pending')}
                     className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-oe-bg transition-colors text-left"
                   >
                     <div className="w-7 h-7 gradient-bg rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0">
@@ -139,7 +178,7 @@ export default function StartupNotificationModal() {
               </>
             )}
 
-            {/* Urgent Announcements */}
+            {/* Urgent / High Announcements */}
             {urgentAnnouncements.length > 0 && (
               <>
                 {pendingLeaves.length > 0 && <div className="border-t border-oe-border/40 my-1" />}
@@ -152,7 +191,7 @@ export default function StartupNotificationModal() {
                 {urgentAnnouncements.map(a => (
                   <button
                     key={a.id}
-                    onClick={() => goTo('/announcements')}
+                    onClick={() => ackAndGo('/announcements', [a.id])}
                     className="w-full flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-oe-bg transition-colors text-left"
                   >
                     <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5 ${a.priority === 'urgent' ? 'bg-red-500/10 text-red-500' : 'bg-amber-500/10 text-amber-500'}`}>
@@ -183,7 +222,7 @@ export default function StartupNotificationModal() {
                   return (
                     <button
                       key={t.id}
-                      onClick={() => goTo(`/tickets/${t.id}`)}
+                      onClick={() => ackAndGo(`/tickets/${t.id}`)}
                       className="w-full flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-oe-bg transition-colors text-left"
                     >
                       <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5 ${priorityColor}`}>
@@ -203,11 +242,11 @@ export default function StartupNotificationModal() {
             )}
           </div>
 
-          {/* Footer — mandatory action */}
+          {/* Footer */}
           <div className="px-4 py-3 border-t border-oe-border/50 bg-oe-bg space-y-2">
             {pendingLeaves.length > 0 && (
               <button
-                onClick={() => goTo('/leaves?status=pending')}
+                onClick={() => ackAndGo('/leaves?status=pending')}
                 className="w-full py-2.5 rounded-lg text-sm font-semibold text-white gradient-bg hover:opacity-90 transition-opacity"
               >
                 Review Pending Leaves
@@ -215,7 +254,7 @@ export default function StartupNotificationModal() {
             )}
             {assignedTickets.length > 0 && (
               <button
-                onClick={() => goTo('/tickets')}
+                onClick={() => ackAndGo('/tickets')}
                 className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity ${pendingLeaves.length > 0 ? 'border border-oe-border text-oe-text hover:bg-oe-surface' : 'text-white gradient-bg hover:opacity-90'}`}
               >
                 View Assigned Tickets ({assignedTickets.length})
@@ -223,12 +262,19 @@ export default function StartupNotificationModal() {
             )}
             {pendingLeaves.length === 0 && assignedTickets.length === 0 && urgentAnnouncements.length > 0 && (
               <button
-                onClick={() => goTo('/announcements')}
+                onClick={() => ackAllAnnsAndGo('/announcements')}
                 className="w-full py-2.5 rounded-lg text-sm font-semibold text-white gradient-bg hover:opacity-90 transition-opacity"
               >
                 View Announcements
               </button>
             )}
+            {/* Dismiss — also acknowledges all shown announcements */}
+            <button
+              onClick={dismiss}
+              className="w-full py-2 rounded-lg text-xs font-medium text-oe-muted hover:text-oe-text hover:bg-oe-surface transition-colors"
+            >
+              Dismiss
+            </button>
           </div>
         </div>
       </div>
