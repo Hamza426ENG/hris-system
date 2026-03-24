@@ -118,10 +118,23 @@ export const adminAPI = {
 };
 
 export const attendanceAPI = {
+  // Self-service
   today: () => api.get('/attendance/today'),
   checkIn: () => api.post('/attendance/checkin'),
   checkOut: () => api.post('/attendance/checkout'),
   history: (params) => api.get('/attendance/history', { params }),
+  // Summary dashboard
+  summary: (empId, params) => api.get(`/attendance/summary/${empId}`, { params }),
+  // Admin / HR
+  listAll: (params) => api.get('/attendance/all', { params }),
+  getEmployee: (empId, params) => api.get(`/attendance/employee/${empId}`, { params }),
+  createManual: (data) => api.post('/attendance/manual', data),
+  update: (id, data) => api.put(`/attendance/${id}`, data),
+  delete: (id) => api.delete(`/attendance/${id}`),
+};
+
+export const auditLogsAPI = {
+  list: (params) => api.get('/logs', { params }),
 };
 
 export const performanceAPI = {
@@ -134,6 +147,24 @@ export const performanceAPI = {
 export const adminDataAPI = {
   updateEmployee: (id, data) => api.put(`/admin-data/employees/${id}`, data),
   seedSampleData: () => api.post('/admin-data/seed-sample-data'),
+};
+
+export const configAPI = {
+  get: () => api.get('/config'),
+};
+
+export const devicesAPI = {
+  list: () => api.get('/devices'),
+  get: (id) => api.get(`/devices/${id}`),
+  create: (data) => api.post('/devices', data),
+  update: (id, data) => api.put(`/devices/${id}`, data),
+  delete: (id) => api.delete(`/devices/${id}`),
+  test: (id) => api.post(`/devices/${id}/test`),
+  sync: (id, params) => api.post(`/devices/${id}/sync`, null, { params }),
+  getUsers: (id) => api.get(`/devices/${id}/users`),
+  mapUser: (id, data) => api.post(`/devices/${id}/map-user`, data),
+  getMappings: (id) => api.get(`/devices/${id}/mappings`),
+  getRawLogs: (id, params) => api.get(`/devices/${id}/raw-logs`, { params }),
 };
 
 export default api;

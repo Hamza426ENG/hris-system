@@ -6,7 +6,7 @@ import PublicRoute from '@/components/auth/PublicRoute';
 import EdgeLogo from '@/components/common/EdgeLogo';
 
 function LoginContent() {
-  const [form, setForm] = useState({ email: 'admin@company.com', password: 'password' });
+  const [form, setForm] = useState({ email: '', password: '' });
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');

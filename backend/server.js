@@ -36,6 +36,7 @@ app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date() }));
 app.get('/', (req, res) => res.json({ message: 'HRIS API v1.0', status: 'running' }));
 
 // Routes
+app.use('/api/config', require('./routes/config'));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/employees', require('./routes/employees'));
 app.use('/api/departments', require('./routes/departments'));
@@ -52,6 +53,8 @@ app.use('/api/admin-data', require('./routes/admin-data'));
 app.use('/api/chat', require('./routes/chat'));
 app.use('/api/attendance', require('./routes/attendance'));
 app.use('/api/performance', require('./routes/performance'));
+app.use('/api/logs', require('./routes/logs'));
+app.use('/api/devices', require('./routes/devices'));
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));

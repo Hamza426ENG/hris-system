@@ -5,7 +5,7 @@ import { attendanceAPI, employeesAPI, leavesAPI } from '@/services/api';
 import {
   LogIn, LogOut, Calendar, User, Building2,
   CheckCircle2, Briefcase, TrendingUp, ChevronRight,
-  RotateCcw, Hash, MapPin
+  RotateCcw, Hash, MapPin, Fingerprint
 } from 'lucide-react';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -33,21 +33,9 @@ function greeting() {
   return 'Good evening';
 }
 
-const ROLE_STYLES = {
-  super_admin: 'bg-white/15 text-white/90 border border-white/20',
-  hr_admin:    'bg-white/15 text-white/90 border border-white/20',
-  manager:     'bg-white/15 text-white/90 border border-white/20',
-  team_lead:   'bg-white/15 text-white/90 border border-white/20',
-  employee:    'bg-white/15 text-white/90 border border-white/20',
-};
+const ROLE_STYLE = 'bg-white/15 text-white/90 border border-white/20';
 
-const ROLE_LABELS = {
-  super_admin: 'Admin',
-  hr_admin: 'HR Admin',
-  manager: 'Manager',
-  team_lead: 'Team Lead',
-  employee: 'Employee',
-};
+const fmtRole = (r) => r ? r.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : '';
 
 // ── initials avatar ──────────────────────────────────────────────────────────
 
@@ -191,8 +179,8 @@ export default function ProfileDive() {
           <div className="gradient-bg px-6 pt-6 pb-5">
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2">
-                <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${ROLE_STYLES[user.role] || ROLE_STYLES.employee}`}>
-                  {ROLE_LABELS[user.role] || user.role}
+                <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${ROLE_STYLE}`}>
+                  {fmtRole(user.role)}
                 </span>
               </div>
               <div className="text-right">
@@ -288,10 +276,18 @@ export default function ProfileDive() {
             )}
           </div>
 
-          {/* tap hint */}
-          <div className="bg-oe-card border-t border-oe-border/50 px-6 py-2 flex items-center justify-center gap-1.5">
-            <RotateCcw size={10} className="text-oe-muted/60" />
-            <span className="text-[10px] text-oe-muted/60 tracking-wide">Tap to see details</span>
+          {/* attendance link + tap hint */}
+          <div className="bg-oe-card border-t border-oe-border/50 px-6 py-2 flex items-center justify-between">
+            <button
+              onClick={(e) => { e.stopPropagation(); router.push('/attendance'); }}
+              className="flex items-center gap-1.5 text-[11px] text-oe-primary font-medium hover:underline"
+            >
+              <Fingerprint size={11} /> View Attendance
+            </button>
+            <div className="flex items-center gap-1.5">
+              <RotateCcw size={10} className="text-oe-muted/60" />
+              <span className="text-[10px] text-oe-muted/60 tracking-wide">Tap to flip</span>
+            </div>
           </div>
         </div>
 

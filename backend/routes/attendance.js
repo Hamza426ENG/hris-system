@@ -1,15 +1,62 @@
+/**
+ * Attendance Module — Production-grade, RBAC-aware, fully audited.
+ *
+ * Self-service (all authenticated users):
+ *   GET    /attendance/today        – own record for today
+ *   POST   /attendance/checkin      – check in self
+ *   POST   /attendance/checkout     – check out self
+ *   GET    /attendance/history      – own paginated history
+ *
+ * Admin / HR / Team Lead:
+ *   GET    /attendance/all                   – search & filter all records
+ *   GET    /attendance/employee/:employeeId  – specific employee history
+ *   POST   /attendance/manual                – create record for any employee
+ *   PUT    /attendance/:id                   – edit any record
+ *   DELETE /attendance/:id                   – delete any record
+ *
+ * Every mutating action is audit-logged.
+ */
+
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, authorize } = require('../middleware/auth');
+const { logAction } = require('../utils/auditLogger');
 
-// All attendance routes require authentication
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+const ADMIN_ROLES = ['super_admin', 'hr_admin'];
+const LEAD_ROLES  = ['super_admin', 'hr_admin', 'manager', 'team_lead'];
+
+function isAdmin(role) { return ADMIN_ROLES.includes(role); }
+function isLead(role)  { return LEAD_ROLES.includes(role); }
+
+/**
+ * Validate a date string is in YYYY-MM-DD format and represents a real date.
+ */
+function isValidDate(str) {
+  if (!str || !/^\d{4}-\d{2}-\d{2}$/.test(str)) return false;
+  const d = new Date(str + 'T00:00:00Z');
+  return !isNaN(d.getTime());
+}
+
+/**
+ * Validate a time string (HH:MM or HH:MM:SS, 24h format).
+ */
+function isValidTime(str) {
+  return /^\d{2}:\d{2}(:\d{2})?$/.test(str);
+}
+
+// All routes require authentication
 router.use(authenticate);
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SELF-SERVICE ENDPOINTS (any authenticated employee)
+// ═════════════════════════════════════════════════════════════════════════════
 
 /**
  * GET /attendance/today
- * Returns the current user's attendance record for today.
- * Returns null if no record exists yet (not checked in).
+ * Returns the caller's attendance record for today (or null).
  */
 router.get('/today', async (req, res) => {
   try {
@@ -19,32 +66,22 @@ router.get('/today', async (req, res) => {
     }
 
     const result = await db.query(
-      `SELECT
-         ar.id,
-         ar.date,
-         ar.check_in,
-         ar.check_out,
-         ar.work_hours,
-         ar.status,
-         ar.notes
-       FROM attendance_records ar
-       WHERE ar.employee_id = $1
-         AND ar.date = CURRENT_DATE`,
+      `SELECT id, date, check_in, check_out, work_hours, status, notes
+       FROM attendance_records
+       WHERE employee_id = $1 AND date = CURRENT_DATE`,
       [employeeId]
     );
 
-    const record = result.rows[0] || null;
-    res.json({ record });
+    res.json({ record: result.rows[0] || null });
   } catch (err) {
     console.error('GET /attendance/today error:', err);
-    res.status(500).json({ error: 'Failed to fetch attendance' });
+    res.status(500).json({ error: 'Failed to fetch today\'s attendance' });
   }
 });
 
 /**
  * POST /attendance/checkin
- * Records check-in time for the current user today.
- * Idempotent: if already checked in today, returns existing record.
+ * Check in the current user. Idempotent — won't overwrite existing check-in.
  */
 router.post('/checkin', async (req, res) => {
   try {
@@ -53,18 +90,27 @@ router.post('/checkin', async (req, res) => {
       return res.status(400).json({ error: 'No employee record linked to this user' });
     }
 
-    // Upsert: create a new record or return existing if already checked in
     const result = await db.query(
-      `INSERT INTO attendance_records (employee_id, date, check_in, status, updated_at)
-       VALUES ($1, CURRENT_DATE, NOW(), 'present', NOW())
+      `INSERT INTO attendance_records (employee_id, date, check_in, status, created_by, updated_at)
+       VALUES ($1, CURRENT_DATE, NOW(), 'present', $2, NOW())
        ON CONFLICT (employee_id, date)
        DO UPDATE SET
-         check_in  = CASE WHEN attendance_records.check_in IS NULL THEN NOW() ELSE attendance_records.check_in END,
-         status    = COALESCE(attendance_records.status, 'present'),
+         check_in   = CASE WHEN attendance_records.check_in IS NULL THEN NOW() ELSE attendance_records.check_in END,
+         status     = COALESCE(attendance_records.status, 'present'),
+         updated_by = $2,
          updated_at = NOW()
        RETURNING *`,
-      [employeeId]
+      [employeeId, req.user.id]
     );
+
+    await logAction({
+      userId: req.user.id,
+      action: 'CHECK_IN',
+      entity: 'attendance',
+      entityId: result.rows[0].id,
+      newValue: result.rows[0],
+      req,
+    });
 
     res.json({ record: result.rows[0] });
   } catch (err) {
@@ -75,7 +121,7 @@ router.post('/checkin', async (req, res) => {
 
 /**
  * POST /attendance/checkout
- * Records check-out time for the current user today and computes work_hours.
+ * Check out the current user. Computes work_hours automatically.
  */
 router.post('/checkout', async (req, res) => {
   try {
@@ -84,23 +130,39 @@ router.post('/checkout', async (req, res) => {
       return res.status(400).json({ error: 'No employee record linked to this user' });
     }
 
+    // Fetch old record for audit diff
+    const old = await db.query(
+      `SELECT * FROM attendance_records
+       WHERE employee_id = $1 AND date = CURRENT_DATE AND check_in IS NOT NULL AND check_out IS NULL`,
+      [employeeId]
+    );
+    if (old.rows.length === 0) {
+      return res.status(400).json({ error: 'No active check-in found for today' });
+    }
+
     const result = await db.query(
       `UPDATE attendance_records
-       SET
-         check_out  = NOW(),
-         work_hours = ROUND(EXTRACT(EPOCH FROM (NOW() - check_in)) / 3600, 2),
-         updated_at = NOW()
+       SET check_out   = NOW(),
+           work_hours  = ROUND(EXTRACT(EPOCH FROM (NOW() - check_in)) / 3600, 2),
+           updated_by  = $2,
+           updated_at  = NOW()
        WHERE employee_id = $1
-         AND date        = CURRENT_DATE
+         AND date = CURRENT_DATE
          AND check_in IS NOT NULL
          AND check_out IS NULL
        RETURNING *`,
-      [employeeId]
+      [employeeId, req.user.id]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(400).json({ error: 'No active check-in found for today' });
-    }
+    await logAction({
+      userId: req.user.id,
+      action: 'CHECK_OUT',
+      entity: 'attendance',
+      entityId: result.rows[0].id,
+      oldValue: old.rows[0],
+      newValue: result.rows[0],
+      req,
+    });
 
     res.json({ record: result.rows[0] });
   } catch (err) {
@@ -111,7 +173,7 @@ router.post('/checkout', async (req, res) => {
 
 /**
  * GET /attendance/history?page=1&limit=30
- * Returns paginated attendance history for the current user.
+ * Paginated attendance history for the current user.
  */
 router.get('/history', async (req, res) => {
   try {
@@ -120,15 +182,12 @@ router.get('/history', async (req, res) => {
       return res.status(400).json({ error: 'No employee record linked to this user' });
     }
 
-    const page  = Math.max(1, parseInt(req.query.page)  || 1);
-    const limit = Math.min(90, parseInt(req.query.limit) || 30);
+    const page   = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit  = Math.min(90, Math.max(1, parseInt(req.query.limit) || 30));
     const offset = (page - 1) * limit;
 
     const [countRes, dataRes] = await Promise.all([
-      db.query(
-        'SELECT COUNT(*) FROM attendance_records WHERE employee_id = $1',
-        [employeeId]
-      ),
+      db.query('SELECT COUNT(*) FROM attendance_records WHERE employee_id = $1', [employeeId]),
       db.query(
         `SELECT id, date, check_in, check_out, work_hours, status, notes
          FROM attendance_records
@@ -148,6 +207,673 @@ router.get('/history', async (req, res) => {
   } catch (err) {
     console.error('GET /attendance/history error:', err);
     res.status(500).json({ error: 'Failed to fetch attendance history' });
+  }
+});
+
+/**
+ * GET /attendance/summary/:employeeId?period=month_to_date|last_30_days|custom&start_date=&end_date=
+ *
+ * Returns aggregated attendance stats + detailed records for the attendance dashboard.
+ * Self: can view own. Leads: can view direct reports. Admins: can view any.
+ */
+router.get('/summary/:employeeId', async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+    const period = req.query.period || 'month_to_date';
+
+    // ── RBAC ──────────────────────────────────────────────────────────────
+    if (req.user.employee_id !== employeeId && !isLead(req.user.role)) {
+      return res.status(403).json({ error: 'You can only view your own attendance' });
+    }
+    if (req.user.role === 'team_lead' && req.user.employee_id !== employeeId) {
+      const empCheck = await db.query('SELECT manager_id FROM employees WHERE id = $1', [employeeId]);
+      if (empCheck.rows.length === 0) return res.status(404).json({ error: 'Employee not found' });
+      if (empCheck.rows[0].manager_id !== req.user.employee_id) {
+        return res.status(403).json({ error: 'You can only view your direct reports' });
+      }
+    }
+
+    // ── Date range ────────────────────────────────────────────────────────
+    let startDate, endDate;
+    const now = new Date();
+    endDate = now.toISOString().split('T')[0];
+
+    if (period === 'last_30_days') {
+      const d = new Date(now); d.setDate(d.getDate() - 30);
+      startDate = d.toISOString().split('T')[0];
+    } else if (period === 'custom' && req.query.start_date && req.query.end_date) {
+      startDate = req.query.start_date;
+      endDate   = req.query.end_date;
+    } else {
+      // month_to_date
+      startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    }
+
+    // ── Employee info ────────────────────────────────────────────────────
+    const empRes = await db.query(
+      `SELECT e.id, e.first_name, e.last_name, e.employee_id AS emp_code,
+              e.department_id, e.wfh_percentage, e.wfo_percentage,
+              d.name AS department_name
+       FROM employees e
+       LEFT JOIN departments d ON d.id = e.department_id
+       WHERE e.id = $1`,
+      [employeeId]
+    );
+    if (empRes.rows.length === 0) return res.status(404).json({ error: 'Employee not found' });
+    const employee = empRes.rows[0];
+
+    // ── Last working day record ──────────────────────────────────────────
+    const lastDayRes = await db.query(
+      `SELECT date, check_in, check_out, work_hours, status
+       FROM attendance_records
+       WHERE employee_id = $1 AND check_in IS NOT NULL
+       ORDER BY date DESC LIMIT 1`,
+      [employeeId]
+    );
+    const lastDay = lastDayRes.rows[0] || null;
+
+    // ── Period aggregates ────────────────────────────────────────────────
+    const aggRes = await db.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE check_in IS NOT NULL) AS total_present_days,
+         ROUND(AVG(EXTRACT(EPOCH FROM check_in::time))::numeric, 0)  AS avg_checkin_seconds,
+         ROUND(AVG(EXTRACT(EPOCH FROM check_out::time))::numeric, 0) AS avg_checkout_seconds,
+         ROUND(AVG(work_hours)::numeric, 1) AS avg_work_hours,
+         ROUND(SUM(work_hours)::numeric, 1) AS total_hours,
+         COUNT(*) FILTER (WHERE work_hours IS NOT NULL AND work_hours > 0) AS days_with_hours
+       FROM attendance_records
+       WHERE employee_id = $1
+         AND date >= $2 AND date <= $3`,
+      [employeeId, startDate, endDate]
+    );
+    const agg = aggRes.rows[0];
+
+    // ── Month-to-date leaves + absents ───────────────────────────────────
+    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    const leavesRes = await db.query(
+      `SELECT COUNT(*) AS leave_count
+       FROM leave_requests
+       WHERE employee_id = $1
+         AND status = 'approved'
+         AND start_date <= $3
+         AND end_date >= $2`,
+      [employeeId, monthStart, endDate]
+    );
+    const leaveCount = parseInt(leavesRes.rows[0]?.leave_count || 0);
+
+    // Count working days in period (Mon-Fri)
+    const workingDaysRes = await db.query(
+      `SELECT COUNT(*) AS wd
+       FROM generate_series($1::date, $2::date, '1 day') d
+       WHERE EXTRACT(DOW FROM d) BETWEEN 1 AND 5`,
+      [monthStart, endDate]
+    );
+    const totalWorkingDays = parseInt(workingDaysRes.rows[0]?.wd || 0);
+    const presentDays = parseInt(agg.total_present_days || 0);
+    const absentDays = Math.max(0, totalWorkingDays - presentDays - leaveCount);
+
+    // ── Last 30 days aggregates (always computed for the "Last 30 Days" section) ──
+    const d30 = new Date(now); d30.setDate(d30.getDate() - 30);
+    const last30Res = await db.query(
+      `SELECT
+         ROUND(AVG(EXTRACT(EPOCH FROM check_in::time))::numeric, 0) AS avg_checkin_seconds,
+         ROUND(AVG(EXTRACT(EPOCH FROM check_out::time))::numeric, 0) AS avg_checkout_seconds,
+         ROUND(AVG(work_hours)::numeric, 1) AS avg_work_hours,
+         ROUND(SUM(work_hours)::numeric, 1) AS total_hours
+       FROM attendance_records
+       WHERE employee_id = $1 AND date >= $2 AND date <= $3 AND check_in IS NOT NULL`,
+      [employeeId, d30.toISOString().split('T')[0], endDate]
+    );
+    const last30 = last30Res.rows[0];
+
+    // ── Detailed records for the table ───────────────────────────────────
+    const page  = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 100));
+    const offset = (page - 1) * limit;
+
+    const [countRes, recordsRes] = await Promise.all([
+      db.query(
+        `SELECT COUNT(*) FROM attendance_records WHERE employee_id = $1 AND date >= $2 AND date <= $3`,
+        [employeeId, startDate, endDate]
+      ),
+      db.query(
+        `SELECT id, date, check_in, check_out, work_hours, status, notes, source
+         FROM attendance_records
+         WHERE employee_id = $1 AND date >= $2 AND date <= $3
+         ORDER BY date DESC, check_in DESC
+         LIMIT $4 OFFSET $5`,
+        [employeeId, startDate, endDate, limit, offset]
+      ),
+    ]);
+
+    // ── Also pull raw device punches for the period (if any) ─────────────
+    const rawPunchesRes = await db.query(
+      `SELECT punch_time, punch_state, device_user_id
+       FROM device_attendance_raw
+       WHERE employee_id = $1 AND punch_time >= $2 AND punch_time <= ($3::date + INTERVAL '1 day')
+       ORDER BY punch_time ASC`,
+      [employeeId, startDate, endDate]
+    );
+
+    // Helper: seconds since midnight → "HH:MM AM/PM"
+    function secsToTime(secs) {
+      if (!secs && secs !== 0) return null;
+      const h = Math.floor(secs / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const h12 = h % 12 || 12;
+      return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+    }
+
+    res.json({
+      employee,
+      period: { start_date: startDate, end_date: endDate, period },
+      lastWorkingDay: lastDay ? {
+        date: lastDay.date,
+        checkIn: lastDay.check_in,
+        checkOut: lastDay.check_out,
+        totalHours: lastDay.work_hours,
+      } : null,
+      last30Days: {
+        avgCheckIn:    secsToTime(parseInt(last30.avg_checkin_seconds)),
+        avgCheckOut:   secsToTime(parseInt(last30.avg_checkout_seconds)),
+        avgWorkHours:  parseFloat(last30.avg_work_hours || 0),
+        totalHours:    parseFloat(last30.total_hours || 0),
+      },
+      monthToDate: {
+        leaves:       leaveCount,
+        absents:      absentDays,
+        avgWorkHours: parseFloat(agg.avg_work_hours || 0),
+        totalWorkingDays,
+        presentDays,
+      },
+      hoursPercentage: {
+        wfh: parseFloat(employee.wfh_percentage || 0),
+        wfo: parseFloat(employee.wfo_percentage || 0),
+      },
+      periodStats: {
+        avgCheckIn:   secsToTime(parseInt(agg.avg_checkin_seconds)),
+        avgCheckOut:  secsToTime(parseInt(agg.avg_checkout_seconds)),
+        avgWorkHours: parseFloat(agg.avg_work_hours || 0),
+        totalHours:   parseFloat(agg.total_hours || 0),
+        presentDays:  parseInt(agg.total_present_days || 0),
+      },
+      records: recordsRes.rows,
+      rawPunches: rawPunchesRes.rows,
+      total: parseInt(countRes.rows[0].count),
+      page,
+      limit,
+    });
+  } catch (err) {
+    console.error('GET /attendance/summary/:id error:', err);
+    res.status(500).json({ error: 'Failed to fetch attendance summary' });
+  }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ADMIN / HR / TEAM-LEAD ENDPOINTS
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /attendance/all?employee_id=&department=&start_date=&end_date=&status=&page=&limit=&sort_by=&sort_order=
+ * Search, filter, and paginate all attendance records.
+ * Accessible by: super_admin, hr_admin, manager, team_lead
+ */
+router.get('/all', authorize(...LEAD_ROLES), async (req, res) => {
+  try {
+    const {
+      employee_id,
+      department,
+      start_date,
+      end_date,
+      status,
+      search,
+      sort_by    = 'date',
+      sort_order = 'desc',
+    } = req.query;
+
+    const page   = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit  = Math.min(100, Math.max(1, parseInt(req.query.limit) || 30));
+    const offset = (page - 1) * limit;
+
+    // Whitelist allowed sort columns to prevent SQL injection
+    const SORT_COLS = {
+      date:       'ar.date',
+      check_in:   'ar.check_in',
+      check_out:  'ar.check_out',
+      work_hours: 'ar.work_hours',
+      status:     'ar.status',
+      name:       'e.first_name',
+    };
+    const orderCol = SORT_COLS[sort_by] || 'ar.date';
+    const orderDir = sort_order?.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+
+    // Build WHERE clauses dynamically
+    const conditions = [];
+    const params = [];
+    let paramIdx = 1;
+
+    // Team leads: restrict to own direct reports + self
+    if (req.user.role === 'team_lead') {
+      conditions.push(`(e.manager_id = $${paramIdx} OR e.id = $${paramIdx})`);
+      params.push(req.user.employee_id);
+      paramIdx++;
+    }
+
+    if (employee_id) {
+      conditions.push(`ar.employee_id = $${paramIdx}`);
+      params.push(employee_id);
+      paramIdx++;
+    }
+
+    if (department) {
+      conditions.push(`e.department_id = $${paramIdx}`);
+      params.push(department);
+      paramIdx++;
+    }
+
+    if (start_date && isValidDate(start_date)) {
+      conditions.push(`ar.date >= $${paramIdx}`);
+      params.push(start_date);
+      paramIdx++;
+    }
+
+    if (end_date && isValidDate(end_date)) {
+      conditions.push(`ar.date <= $${paramIdx}`);
+      params.push(end_date);
+      paramIdx++;
+    }
+
+    if (status) {
+      conditions.push(`ar.status = $${paramIdx}`);
+      params.push(status);
+      paramIdx++;
+    }
+
+    if (search) {
+      conditions.push(`(
+        e.first_name ILIKE $${paramIdx}
+        OR e.last_name ILIKE $${paramIdx}
+        OR e.employee_id ILIKE $${paramIdx}
+      )`);
+      params.push(`%${search}%`);
+      paramIdx++;
+    }
+
+    const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+
+    const countSQL = `
+      SELECT COUNT(*)
+      FROM attendance_records ar
+      JOIN employees e ON e.id = ar.employee_id
+      ${whereClause}
+    `;
+
+    const dataSQL = `
+      SELECT
+        ar.id,
+        ar.employee_id,
+        ar.date,
+        ar.check_in,
+        ar.check_out,
+        ar.work_hours,
+        ar.status,
+        ar.notes,
+        ar.created_by,
+        ar.updated_by,
+        ar.created_at,
+        ar.updated_at,
+        e.first_name,
+        e.last_name,
+        e.employee_id  AS emp_code,
+        e.avatar_url,
+        d.name         AS department_name
+      FROM attendance_records ar
+      JOIN employees  e ON e.id = ar.employee_id
+      LEFT JOIN departments d ON d.id = e.department_id
+      ${whereClause}
+      ORDER BY ${orderCol} ${orderDir}, e.first_name ASC
+      LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
+    `;
+
+    const [countRes, dataRes] = await Promise.all([
+      db.query(countSQL, params),
+      db.query(dataSQL, [...params, limit, offset]),
+    ]);
+
+    res.json({
+      records: dataRes.rows,
+      total:   parseInt(countRes.rows[0].count),
+      page,
+      limit,
+    });
+  } catch (err) {
+    console.error('GET /attendance/all error:', err);
+    res.status(500).json({ error: 'Failed to fetch attendance records' });
+  }
+});
+
+/**
+ * GET /attendance/employee/:employeeId?page=&limit=&start_date=&end_date=
+ * View a specific employee's attendance history.
+ * Team leads can only view their direct reports.
+ */
+router.get('/employee/:employeeId', authorize(...LEAD_ROLES), async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+
+    // Team leads: verify the target is a direct report
+    if (req.user.role === 'team_lead') {
+      const empCheck = await db.query(
+        'SELECT id, manager_id FROM employees WHERE id = $1',
+        [employeeId]
+      );
+      if (empCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Employee not found' });
+      }
+      if (empCheck.rows[0].manager_id !== req.user.employee_id && empCheck.rows[0].id !== req.user.employee_id) {
+        return res.status(403).json({ error: 'You can only view your direct reports\' attendance' });
+      }
+    }
+
+    const { start_date, end_date } = req.query;
+    const page   = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit  = Math.min(90, Math.max(1, parseInt(req.query.limit) || 30));
+    const offset = (page - 1) * limit;
+
+    const conditions = ['ar.employee_id = $1'];
+    const params = [employeeId];
+    let paramIdx = 2;
+
+    if (start_date && isValidDate(start_date)) {
+      conditions.push(`ar.date >= $${paramIdx}`);
+      params.push(start_date);
+      paramIdx++;
+    }
+    if (end_date && isValidDate(end_date)) {
+      conditions.push(`ar.date <= $${paramIdx}`);
+      params.push(end_date);
+      paramIdx++;
+    }
+
+    const whereClause = 'WHERE ' + conditions.join(' AND ');
+
+    const [countRes, dataRes] = await Promise.all([
+      db.query(`SELECT COUNT(*) FROM attendance_records ar ${whereClause}`, params),
+      db.query(
+        `SELECT ar.*, e.first_name, e.last_name, e.employee_id AS emp_code
+         FROM attendance_records ar
+         JOIN employees e ON e.id = ar.employee_id
+         ${whereClause}
+         ORDER BY ar.date DESC
+         LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
+        [...params, limit, offset]
+      ),
+    ]);
+
+    await logAction({
+      userId: req.user.id,
+      action: 'VIEW',
+      entity: 'attendance',
+      entityId: employeeId,
+      req,
+      details: `Viewed attendance for employee ${employeeId}`,
+    });
+
+    res.json({
+      records: dataRes.rows,
+      total:   parseInt(countRes.rows[0].count),
+      page,
+      limit,
+    });
+  } catch (err) {
+    console.error('GET /attendance/employee/:id error:', err);
+    res.status(500).json({ error: 'Failed to fetch employee attendance' });
+  }
+});
+
+/**
+ * POST /attendance/manual
+ * HR / Super Admin manually creates an attendance record for an employee.
+ *
+ * Body: { employee_id, date, check_in_time?, check_out_time?, status?, notes? }
+ *   - date: YYYY-MM-DD
+ *   - check_in_time / check_out_time: HH:MM or HH:MM:SS (24h)
+ */
+router.post('/manual', authorize(...ADMIN_ROLES), async (req, res) => {
+  try {
+    const { employee_id, date, check_in_time, check_out_time, status, notes } = req.body;
+
+    // ── Validation ──────────────────────────────────────────────────────────
+    if (!employee_id) {
+      return res.status(400).json({ error: 'employee_id is required' });
+    }
+    if (!date || !isValidDate(date)) {
+      return res.status(400).json({ error: 'Valid date (YYYY-MM-DD) is required' });
+    }
+
+    // Verify employee exists and has role = employee (or at least is an employee record)
+    const empCheck = await db.query(
+      `SELECT e.id, u.role FROM employees e JOIN users u ON u.id = e.user_id WHERE e.id = $1`,
+      [employee_id]
+    );
+    if (empCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Employee not found' });
+    }
+
+    // Validate times if provided
+    if (check_in_time && !isValidTime(check_in_time)) {
+      return res.status(400).json({ error: 'Invalid check_in_time format (HH:MM or HH:MM:SS)' });
+    }
+    if (check_out_time && !isValidTime(check_out_time)) {
+      return res.status(400).json({ error: 'Invalid check_out_time format (HH:MM or HH:MM:SS)' });
+    }
+
+    // Build timestamps from date + time
+    const checkIn  = check_in_time  ? `${date}T${check_in_time}` : null;
+    const checkOut = check_out_time ? `${date}T${check_out_time}` : null;
+
+    // Constraint: check_out must be after check_in
+    if (checkIn && checkOut && new Date(checkOut) <= new Date(checkIn)) {
+      return res.status(400).json({ error: 'check_out_time must be after check_in_time' });
+    }
+
+    // Prevent duplicate: check if a record for this employee+date already exists
+    const existing = await db.query(
+      'SELECT id FROM attendance_records WHERE employee_id = $1 AND date = $2',
+      [employee_id, date]
+    );
+    if (existing.rows.length > 0) {
+      return res.status(409).json({
+        error: 'Attendance record already exists for this employee on this date',
+        existing_id: existing.rows[0].id,
+      });
+    }
+
+    // Calculate work_hours if both times provided
+    let workHours = null;
+    if (checkIn && checkOut) {
+      workHours = ((new Date(checkOut) - new Date(checkIn)) / 3600000).toFixed(2);
+    }
+
+    const result = await db.query(
+      `INSERT INTO attendance_records
+         (employee_id, date, check_in, check_out, work_hours, status, notes, created_by, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+       RETURNING *`,
+      [
+        employee_id,
+        date,
+        checkIn,
+        checkOut,
+        workHours,
+        status || (checkIn ? 'present' : 'absent'),
+        notes || null,
+        req.user.id,
+      ]
+    );
+
+    await logAction({
+      userId: req.user.id,
+      action: 'CREATE',
+      entity: 'attendance',
+      entityId: result.rows[0].id,
+      newValue: result.rows[0],
+      req,
+      details: `Manually created attendance for employee ${employee_id} on ${date}`,
+    });
+
+    res.status(201).json({ record: result.rows[0] });
+  } catch (err) {
+    console.error('POST /attendance/manual error:', err);
+    res.status(500).json({ error: 'Failed to create attendance record' });
+  }
+});
+
+/**
+ * PUT /attendance/:id
+ * HR / Super Admin edits an existing attendance record.
+ *
+ * Body (all optional): { check_in_time, check_out_time, date, status, notes }
+ */
+router.put('/:id', authorize(...ADMIN_ROLES), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { check_in_time, check_out_time, date, status, notes } = req.body;
+
+    // Fetch existing record for validation + audit diff
+    const oldResult = await db.query(
+      'SELECT * FROM attendance_records WHERE id = $1',
+      [id]
+    );
+    if (oldResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Attendance record not found' });
+    }
+    const oldRecord = oldResult.rows[0];
+
+    // Determine the effective date for timestamp construction
+    const effectiveDate = date && isValidDate(date) ? date : oldRecord.date.toISOString().split('T')[0];
+
+    // Build updated timestamps
+    let checkIn  = oldRecord.check_in;
+    let checkOut = oldRecord.check_out;
+
+    if (check_in_time !== undefined) {
+      if (check_in_time === null) {
+        checkIn = null;
+      } else if (isValidTime(check_in_time)) {
+        checkIn = `${effectiveDate}T${check_in_time}`;
+      } else {
+        return res.status(400).json({ error: 'Invalid check_in_time format' });
+      }
+    }
+
+    if (check_out_time !== undefined) {
+      if (check_out_time === null) {
+        checkOut = null;
+      } else if (isValidTime(check_out_time)) {
+        checkOut = `${effectiveDate}T${check_out_time}`;
+      } else {
+        return res.status(400).json({ error: 'Invalid check_out_time format' });
+      }
+    }
+
+    // Constraint: check_out > check_in
+    if (checkIn && checkOut && new Date(checkOut) <= new Date(checkIn)) {
+      return res.status(400).json({ error: 'check_out must be after check_in' });
+    }
+
+    // If date changed, verify no duplicate
+    if (date && isValidDate(date) && date !== oldRecord.date.toISOString().split('T')[0]) {
+      const dup = await db.query(
+        'SELECT id FROM attendance_records WHERE employee_id = $1 AND date = $2 AND id != $3',
+        [oldRecord.employee_id, date, id]
+      );
+      if (dup.rows.length > 0) {
+        return res.status(409).json({ error: 'Another record already exists for this employee on that date' });
+      }
+    }
+
+    // Recalculate work_hours
+    let workHours = oldRecord.work_hours;
+    if (checkIn && checkOut) {
+      workHours = ((new Date(checkOut) - new Date(checkIn)) / 3600000).toFixed(2);
+    } else {
+      workHours = null;
+    }
+
+    const result = await db.query(
+      `UPDATE attendance_records
+       SET date       = COALESCE($1, date),
+           check_in   = $2,
+           check_out  = $3,
+           work_hours = $4,
+           status     = COALESCE($5, status),
+           notes      = COALESCE($6, notes),
+           updated_by = $7,
+           updated_at = NOW()
+       WHERE id = $8
+       RETURNING *`,
+      [
+        date && isValidDate(date) ? date : null,
+        checkIn,
+        checkOut,
+        workHours,
+        status || null,
+        notes !== undefined ? notes : null,
+        req.user.id,
+        id,
+      ]
+    );
+
+    await logAction({
+      userId: req.user.id,
+      action: 'UPDATE',
+      entity: 'attendance',
+      entityId: id,
+      oldValue: oldRecord,
+      newValue: result.rows[0],
+      req,
+      details: `Updated attendance record ${id}`,
+    });
+
+    res.json({ record: result.rows[0] });
+  } catch (err) {
+    console.error('PUT /attendance/:id error:', err);
+    res.status(500).json({ error: 'Failed to update attendance record' });
+  }
+});
+
+/**
+ * DELETE /attendance/:id
+ * HR / Super Admin deletes an attendance record.
+ */
+router.delete('/:id', authorize(...ADMIN_ROLES), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Fetch for audit before deletion
+    const existing = await db.query('SELECT * FROM attendance_records WHERE id = $1', [id]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Attendance record not found' });
+    }
+
+    await db.query('DELETE FROM attendance_records WHERE id = $1', [id]);
+
+    await logAction({
+      userId: req.user.id,
+      action: 'DELETE',
+      entity: 'attendance',
+      entityId: id,
+      oldValue: existing.rows[0],
+      req,
+      details: `Deleted attendance record for employee ${existing.rows[0].employee_id} on ${existing.rows[0].date}`,
+    });
+
+    res.json({ message: 'Attendance record deleted', deleted: existing.rows[0] });
+  } catch (err) {
+    console.error('DELETE /attendance/:id error:', err);
+    res.status(500).json({ error: 'Failed to delete attendance record' });
   }
 });
 

@@ -1,21 +1,35 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/router';
 import { leavesAPI, employeesAPI } from '@/services/api';
 import Modal from '@/components/common/Modal';
 import { Plus, Check, X, Calendar, Download } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useConfig } from '@/context/ConfigContext';
 import PrivateRoute from '@/components/auth/PrivateRoute';
 import Layout from '@/components/layout/Layout';
 
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-';
-const STATUSES = ['pending', 'approved', 'rejected', 'cancelled'];
 
 function LeavesContent() {
   const { user } = useAuth();
+  const router = useRouter();
+  const { leaveStatuses: STATUSES, years: YEARS } = useConfig();
   const [leaves, setLeaves] = useState([]);
   const [types, setTypes] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ status: '', year: new Date().getFullYear() });
+
+  // If redirected with ?status=pending, show all years so pending items are visible
+  const qStatus = router.query.status || '';
+  const [filters, setFilters] = useState({ status: qStatus, year: qStatus ? '' : new Date().getFullYear() });
+
+  // Sync if query params change (e.g. navigated from popup)
+  useEffect(() => {
+    const s = router.query.status || '';
+    if (s && s !== filters.status) {
+      setFilters({ status: s, year: '' });
+    }
+  }, [router.query.status]); // eslint-disable-line react-hooks/exhaustive-deps
   const isHR = ['super_admin', 'hr_admin'].includes(user?.role);
   const canApprove = ['super_admin', 'hr_admin', 'team_lead', 'manager'].includes(user?.role);
   const [modal, setModal] = useState(null);
@@ -111,7 +125,8 @@ function LeavesContent() {
             {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
           <select className="input w-full sm:w-28" value={filters.year} onChange={e => setFilters({ ...filters, year: e.target.value })}>
-            {[2026, 2025, 2024, 2023].map(y => <option key={y} value={y}>{y}</option>)}
+            <option value="">All Years</option>
+            {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           <button onClick={exportCSV} className="btn-secondary flex-1 sm:flex-none justify-center"><Download size={15} /> Export</button>
         </div>
@@ -193,12 +208,12 @@ function LeavesContent() {
                     <div className="flex gap-1">
                       {canApprove && l.status === 'pending' && (
                         <>
-                          <button onClick={() => { setSelected(l); setModal('review'); }} className="p-1.5 rounded hover:bg-oe-surface text-oe-muted hover:text-oe-success transition-colors" title="Review"><Check size={13} /></button>
-                          <button onClick={() => { setSelected(l); setModal('reject'); }} className="p-1.5 rounded hover:bg-oe-surface text-oe-muted hover:text-oe-danger transition-colors" title="Reject"><X size={13} /></button>
+                          <button onClick={() => { setSelected(l); setModal('review'); }} className="p-1.5 rounded hover:bg-oe-surface text-oe-muted hover:text-oe-success transition-colors" data-tip="Review"><Check size={13} /></button>
+                          <button onClick={() => { setSelected(l); setModal('reject'); }} className="p-1.5 rounded hover:bg-oe-surface text-oe-muted hover:text-oe-danger transition-colors" data-tip="Reject"><X size={13} /></button>
                         </>
                       )}
                       {l.status === 'pending' && (
-                        <button onClick={() => handleCancel(l.id)} className="p-1.5 rounded hover:bg-oe-surface text-oe-muted hover:text-oe-warning transition-colors text-xs" title="Cancel">Cancel</button>
+                        <button onClick={() => handleCancel(l.id)} className="p-1.5 rounded hover:bg-oe-surface text-oe-muted hover:text-oe-warning transition-colors text-xs" data-tip="Cancel">Cancel</button>
                       )}
                     </div>
                   </td>

@@ -3,67 +3,84 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import {
   LayoutDashboard, Users, GitBranch, Calendar, DollarSign,
-  BarChart3, Settings, ChevronLeft, Wallet, ShieldCheck, X, Megaphone
+  BarChart3, Settings, ChevronLeft, Wallet, ShieldCheck, X, Megaphone,
+  Fingerprint
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useConfig } from '@/context/ConfigContext';
 import EdgeLogo from '@/components/common/EdgeLogo';
+
+const ALL_ROLES_KEY = '__all__';
 
 const NAV_GROUPS = [
   {
     label: 'Overview',
     items: [
-      { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['super_admin', 'hr_admin', 'manager', 'team_lead', 'employee'] },
-      { to: '/announcements', icon: Megaphone, label: 'Announcements', roles: ['super_admin', 'hr_admin', 'manager', 'team_lead', 'employee'] },
+      { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES_KEY },
+      { to: '/announcements', icon: Megaphone, label: 'Announcements', roles: ALL_ROLES_KEY },
     ],
   },
   {
     label: 'People',
     items: [
-      { to: '/employees', icon: Users, label: 'Employees', roles: ['super_admin', 'hr_admin', 'manager', 'team_lead', 'employee'] },
-      { to: '/organogram', icon: GitBranch, label: 'Organogram', roles: ['super_admin', 'hr_admin', 'manager', 'team_lead'] },
-      { to: '/leaves', icon: Calendar, label: 'Leave Management', roles: ['super_admin', 'hr_admin', 'manager', 'team_lead', 'employee'] },
+      { to: '/employees', icon: Users, label: 'Employees', roles: ALL_ROLES_KEY },
+      { to: '/organogram', icon: GitBranch, label: 'Organogram', minLevel: 'team_lead' },
+      { to: '/attendance', icon: Fingerprint, label: 'Attendance', roles: ALL_ROLES_KEY },
+      { to: '/leaves', icon: Calendar, label: 'Leave Management', roles: ALL_ROLES_KEY },
     ],
   },
   {
     label: 'Finance',
     items: [
-      { to: '/salary', icon: DollarSign, label: 'Salary & Comp', roles: ['super_admin', 'hr_admin', 'manager', 'team_lead', 'employee'] },
-      { to: '/payroll', icon: Wallet, label: 'Payroll', roles: ['super_admin', 'hr_admin', 'manager'] },
+      { to: '/salary', icon: DollarSign, label: 'Salary & Comp', roles: ALL_ROLES_KEY },
+      { to: '/payroll', icon: Wallet, label: 'Payroll', minLevel: 'manager' },
     ],
   },
   {
     label: 'System',
     items: [
-      { to: '/reports', icon: BarChart3, label: 'Reports', roles: ['super_admin', 'hr_admin', 'manager'] },
-      { to: '/settings', icon: Settings, label: 'Settings', roles: ['super_admin', 'hr_admin'] },
-      { to: '/admin', icon: ShieldCheck, label: 'Admin Panel', roles: ['super_admin'] },
+      { to: '/reports', icon: BarChart3, label: 'Reports', minLevel: 'manager' },
+      { to: '/settings', icon: Settings, label: 'Settings', minLevel: 'hr_admin' },
+      { to: '/admin', icon: ShieldCheck, label: 'Admin Panel', minLevel: 'super_admin' },
     ],
   },
 ];
 
-const ROLE_BADGE = {
-  super_admin: { label: 'Super Admin', cls: 'bg-violet-100 text-violet-700 border border-violet-200 dark:bg-violet-500/20 dark:text-violet-300 dark:border-violet-500/30' },
-  hr_admin:    { label: 'HR Admin',    cls: 'bg-violet-100 text-violet-700 border border-violet-200 dark:bg-violet-500/20 dark:text-violet-300 dark:border-violet-500/30' },
-  manager:     { label: 'Manager',     cls: 'bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/30' },
-  team_lead:   { label: 'Team Lead',   cls: 'bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/30' },
-  employee:    { label: 'Employee',    cls: 'bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-500/20 dark:text-slate-400 dark:border-slate-500/30' },
+// Role hierarchy for access checks
+const ROLE_HIERARCHY = { super_admin: 5, hr_admin: 4, manager: 3, team_lead: 2, employee: 1 };
+
+const DEFAULT_BADGE_CLS = 'bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-500/20 dark:text-slate-400 dark:border-slate-500/30';
+const ROLE_BADGE_CLS = {
+  super_admin: 'bg-violet-100 text-violet-700 border border-violet-200 dark:bg-violet-500/20 dark:text-violet-300 dark:border-violet-500/30',
+  hr_admin:    'bg-violet-100 text-violet-700 border border-violet-200 dark:bg-violet-500/20 dark:text-violet-300 dark:border-violet-500/30',
+  manager:     'bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/30',
+  team_lead:   'bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/30',
 };
+
+const fmtRole = (r) => r ? r.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : '';
 
 export default function Sidebar({ open, setOpen }) {
   const router = useRouter();
   const { user } = useAuth();
+  const { roles: allRoles } = useConfig();
   const role = user?.role;
 
+  const userLevel = ROLE_HIERARCHY[role] || 0;
   const visibleGroups = NAV_GROUPS.map(group => ({
     ...group,
-    items: group.items.filter(item => item.roles.includes(role)),
+    items: group.items.filter(item => {
+      if (item.roles === ALL_ROLES_KEY) return true;
+      if (item.minLevel) return userLevel >= (ROLE_HIERARCHY[item.minLevel] || 0);
+      return false;
+    }),
   })).filter(group => group.items.length > 0);
 
   const initials = user
     ? `${user.firstName?.[0] || ''}${user.lastName?.[0] || ''}`.toUpperCase()
     : 'U';
   const fullName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : '';
-  const badge = ROLE_BADGE[role] || ROLE_BADGE.employee;
+  const badgeCls = ROLE_BADGE_CLS[role] || DEFAULT_BADGE_CLS;
+  const badgeLabel = fmtRole(role);
 
   const navContent = (isDrawer = false) => (
     <>
@@ -106,7 +123,7 @@ export default function Sidebar({ open, setOpen }) {
                     key={to}
                     href={to}
                     onClick={isDrawer ? () => setOpen(false) : undefined}
-                    title={!open && !isDrawer ? label : undefined}
+                    data-tip={!open && !isDrawer ? label : undefined}
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 relative group ${
                       isActive
                         ? 'bg-oe-primary/10 text-oe-primary dark:bg-white/12 dark:text-white shadow-sm'
@@ -150,7 +167,7 @@ export default function Sidebar({ open, setOpen }) {
           <button
             onClick={() => setOpen(!open)}
             className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:text-white/40 dark:hover:text-white dark:hover:bg-white/8 transition-colors text-xs"
-            title={open ? 'Collapse sidebar' : 'Expand sidebar'}
+            data-tip={open ? 'Collapse' : 'Expand'}
           >
             <ChevronLeft size={14} className={`transition-transform duration-300 ${!open ? 'rotate-180' : ''}`} />
             {open && <span>Collapse</span>}

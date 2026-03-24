@@ -75,6 +75,7 @@ export const AuthProvider = ({ children }) => {
     localStorage.setItem('hris_token', token);
     localStorage.setItem('hris_user', JSON.stringify(userData));
     localStorage.setItem('hris_token_expires', expiry);
+    sessionStorage.setItem('hris_just_logged_in', '1');
     setUser(userData);
     scheduleAutoLogout(expiry);
     return userData;

@@ -4,6 +4,7 @@ import { salaryAPI, employeesAPI } from '@/services/api';
 import Modal from '@/components/common/Modal';
 import { Plus, Search } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useConfig } from '@/context/ConfigContext';
 import PrivateRoute from '@/components/auth/PrivateRoute';
 import Layout from '@/components/layout/Layout';
 
@@ -12,6 +13,7 @@ const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'sho
 
 function SalaryContent() {
   const { user, permissions } = useAuth();
+  const { currencies: CURRENCIES } = useConfig();
   const router = useRouter();
   const [salaries, setSalaries] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -274,7 +276,7 @@ function SalaryContent() {
             <div>
               <label className="label">Currency</label>
               <select className="input" value={form.currency || 'USD'} onChange={e => setForm({ ...form, currency: e.target.value })}>
-                {['USD', 'EUR', 'GBP', 'AED', 'SAR', 'PKR'].map(c => <option key={c} value={c}>{c}</option>)}
+                {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
           </div>

@@ -105,8 +105,8 @@ function SettingsContent() {
                     <div className="text-xs text-oe-muted">{d.code} · {d.location || 'No location'}</div>
                   </div>
                   <div className="flex gap-1 flex-shrink-0 ml-2">
-                    <button onClick={() => openEdit(d)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"><Edit size={13} /></button>
-                    <button onClick={() => handleDelete('departments', d.id)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"><Trash2 size={13} /></button>
+                    <button onClick={() => openEdit(d)} data-tip="Edit department" className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"><Edit size={13} /></button>
+                    <button onClick={() => handleDelete('departments', d.id)} data-tip="Delete department" className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"><Trash2 size={13} /></button>
                   </div>
                 </div>
                 <div className="text-xs text-oe-muted">{d.description || 'No description'}</div>
@@ -144,8 +144,8 @@ function SettingsContent() {
                     <td className="table-cell text-center">{p.headcount || 0}</td>
                     <td className="table-cell">
                       <div className="flex gap-1">
-                        <button onClick={() => openEdit(p)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors"><Edit size={13} /></button>
-                        <button onClick={() => handleDelete('positions', p.id)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors"><Trash2 size={13} /></button>
+                        <button onClick={() => openEdit(p)} data-tip="Edit position" className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors"><Edit size={13} /></button>
+                        <button onClick={() => handleDelete('positions', p.id)} data-tip="Delete position" className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors"><Trash2 size={13} /></button>
                       </div>
                     </td>
                   </tr>
@@ -162,8 +162,8 @@ function SettingsContent() {
                     <div className="text-xs text-oe-muted">{p.code} · {p.department_name || 'No dept'}</div>
                   </div>
                   <div className="flex gap-1 flex-shrink-0 ml-2">
-                    <button onClick={() => openEdit(p)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors"><Edit size={13} /></button>
-                    <button onClick={() => handleDelete('positions', p.id)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors"><Trash2 size={13} /></button>
+                    <button onClick={() => openEdit(p)} data-tip="Edit position" className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors"><Edit size={13} /></button>
+                    <button onClick={() => handleDelete('positions', p.id)} data-tip="Delete position" className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors"><Trash2 size={13} /></button>
                   </div>
                 </div>
               </div>
@@ -185,7 +185,7 @@ function SettingsContent() {
                     <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: lt.color }} />
                     <div className="font-semibold text-oe-text truncate">{lt.name}</div>
                   </div>
-                  <button onClick={() => openEdit(lt)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors flex-shrink-0 ml-2 min-h-[36px] min-w-[36px] flex items-center justify-center"><Edit size={13} /></button>
+                  <button onClick={() => openEdit(lt)} data-tip="Edit leave type" className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors flex-shrink-0 ml-2 min-h-[36px] min-w-[36px] flex items-center justify-center"><Edit size={13} /></button>
                 </div>
                 <div className="text-xs text-oe-muted mb-3">{lt.code} · {lt.description || 'No description'}</div>
                 <div className="flex flex-wrap gap-2 text-xs">

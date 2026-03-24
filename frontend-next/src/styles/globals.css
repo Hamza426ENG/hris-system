@@ -88,6 +88,33 @@
 .dark .btn-success    { background-color: rgb(5 150 105 / 0.12);   border-color: rgb(5 150 105 / 0.25); }
 .dark .btn-success:hover { background-color: rgb(5 150 105 / 0.2); }
 
+/* ─── Tooltip on icon buttons ────────────────────────────────── */
+[data-tip] {
+  position: relative;
+}
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) scale(0.95);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+  background: rgb(var(--oe-text));
+  color: rgb(var(--oe-bg));
+  z-index: 50;
+}
+[data-tip]:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
+}
+
 /* ─── Utilities ───────────────────────────────────────────────── */
 @layer utilities {
   .text-gradient { background: linear-gradient(135deg, rgb(var(--oe-primary)), rgb(var(--oe-purple))); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }

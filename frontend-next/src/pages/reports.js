@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { reportsAPI } from '@/services/api';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid, Legend } from 'recharts';
 import { Download, Users, Calendar, DollarSign, TrendingUp } from 'lucide-react';
+import { useConfig } from '@/context/ConfigContext';
 import PrivateRoute from '@/components/auth/PrivateRoute';
 import Layout from '@/components/layout/Layout';
 
@@ -16,6 +17,7 @@ const TABS = [
 ];
 
 function ReportsContent() {
+  const { years: YEARS } = useConfig();
   const [tab, setTab] = useState('headcount');
   const [year, setYear] = useState(new Date().getFullYear());
   const [data, setData] = useState({});
@@ -79,7 +81,7 @@ function ReportsContent() {
         <div className="flex gap-2 sm:ml-auto">
           {tab !== 'salary' && (
             <select className="input w-24" value={year} onChange={e => setYear(e.target.value)}>
-              {[2026, 2025, 2024, 2023].map(y => <option key={y} value={y}>{y}</option>)}
+              {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           )}
           <button onClick={printReport} className="btn-secondary no-print flex-1 sm:flex-none justify-center"><Download size={15} /> Print / Export</button>

@@ -118,16 +118,16 @@ function PayrollContent() {
                   <td className="table-cell">{statusBadge(r.status)}</td>
                   <td className="table-cell">
                     <div className="flex items-center gap-1">
-                      <button onClick={e => { e.stopPropagation(); router.push(`/payroll/${r.id}`); }} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-text transition-colors" title="View">
+                      <button onClick={e => { e.stopPropagation(); router.push(`/payroll/${r.id}`); }} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-text transition-colors" data-tip="View">
                         <Eye size={14} />
                       </button>
                       {r.status === 'processing' && (
-                        <button onClick={(e) => handleComplete(r.id, e)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-success transition-colors" title="Complete">
+                        <button onClick={(e) => handleComplete(r.id, e)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-success transition-colors" data-tip="Complete">
                           <CheckCircle size={14} />
                         </button>
                       )}
                       {(r.status === 'draft' || r.status === 'processing') && (
-                        <button onClick={(e) => handleCancel(r.id, e)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors" title="Cancel">
+                        <button onClick={(e) => handleCancel(r.id, e)} className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors" data-tip="Cancel">
                           <XCircle size={14} />
                         </button>
                       )}

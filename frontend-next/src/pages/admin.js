@@ -4,21 +4,18 @@ import { adminAPI } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
 import Avatar from '@/components/common/Avatar';
 import { ShieldCheck, ToggleLeft, ToggleRight } from 'lucide-react';
+import { useConfig } from '@/context/ConfigContext';
 import PrivateRoute from '@/components/auth/PrivateRoute';
 import Layout from '@/components/layout/Layout';
 
-const ROLE_OPTIONS = [
-  { value: 'super_admin', label: 'Super Admin' },
-  { value: 'hr_admin', label: 'HR Admin' },
-  { value: 'manager', label: 'Manager' },
-  { value: 'team_lead', label: 'Team Lead' },
-  { value: 'employee', label: 'Employee' },
-];
-
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Never';
+
+const fmtRole = (r) => r ? r.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : r;
 
 function AdminContent() {
   const { user } = useAuth();
+  const { roles } = useConfig();
+  const ROLE_OPTIONS = roles.map(r => ({ value: r, label: fmtRole(r) }));
   const router = useRouter();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -172,7 +169,7 @@ function AdminContent() {
                               ? 'text-oe-success hover:text-oe-danger hover:bg-oe-surface'
                               : 'text-oe-muted hover:text-oe-success hover:bg-oe-surface'
                         }`}
-                        title={isSuperAdmin ? 'Super admin cannot be deactivated' : u.is_active ? 'Deactivate user' : 'Activate user'}
+                        data-tip={isSuperAdmin ? 'Super admin cannot be deactivated' : u.is_active ? 'Deactivate user' : 'Activate user'}
                       >
                         {u.is_active ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
                       </button>
@@ -229,7 +226,7 @@ function AdminContent() {
                           ? 'text-oe-success hover:text-oe-danger hover:bg-oe-surface'
                           : 'text-oe-muted hover:text-oe-success hover:bg-oe-surface'
                     }`}
-                    title={isSuperAdmin ? 'Super admin cannot be deactivated' : undefined}
+                    data-tip={isSuperAdmin ? 'Protected' : u.is_active ? 'Deactivate user' : 'Activate user'}
                   >
                     {u.is_active ? <ToggleRight size={20} /> : <ToggleLeft size={20} />}
                   </button>

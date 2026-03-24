@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const db = require('../db');
 const { authenticate } = require('../middleware/auth');
+const { logAction } = require('../utils/auditLogger');
 
 const router = express.Router();
 
@@ -58,6 +59,16 @@ router.post('/login', async (req, res) => {
       [user.id, jti, ipAddress, userAgent, expiresAt]
     ).catch(err => console.error('Session record error:', err.message));
 
+    // Audit: log successful login
+    logAction({
+      userId: user.id,
+      action: 'LOGIN',
+      entity: 'user',
+      entityId: user.id,
+      req,
+      details: `User ${user.email} logged in`,
+    });
+
     res.json({
       token,
       expiresAt: expiresAt.toISOString(),
@@ -111,6 +122,16 @@ router.post('/logout', async (req, res) => {
         [decoded.jti]
       ).catch(err => console.error('Session revoke error:', err.message));
     }
+
+    // Audit: log logout
+    logAction({
+      userId: decoded.userId,
+      action: 'LOGOUT',
+      entity: 'user',
+      entityId: decoded.userId,
+      req,
+      details: 'User logged out',
+    });
 
     res.json({ message: 'Logged out successfully' });
   } catch (err) {

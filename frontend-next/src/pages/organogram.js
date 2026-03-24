@@ -103,10 +103,10 @@ function OrganogramContent() {
           <input className="input pl-9" placeholder="Search employees..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         <div className="flex items-center gap-2 justify-end sm:justify-start">
-          <button onClick={() => setZoom(z => Math.max(0.3, z - 0.1))} className="btn-secondary px-2.5 py-2 min-h-[44px]"><ZoomOut size={15} /></button>
+          <button onClick={() => setZoom(z => Math.max(0.3, z - 0.1))} data-tip="Zoom out" className="btn-secondary px-2.5 py-2 min-h-[44px]"><ZoomOut size={15} /></button>
           <span className="text-xs text-oe-muted w-10 text-center">{Math.round(zoom * 100)}%</span>
-          <button onClick={() => setZoom(z => Math.min(1.5, z + 0.1))} className="btn-secondary px-2.5 py-2 min-h-[44px]"><ZoomIn size={15} /></button>
-          <button onClick={() => setZoom(0.8)} className="btn-secondary px-2.5 py-2 min-h-[44px]" title="Reset"><Maximize2 size={15} /></button>
+          <button onClick={() => setZoom(z => Math.min(1.5, z + 0.1))} data-tip="Zoom in" className="btn-secondary px-2.5 py-2 min-h-[44px]"><ZoomIn size={15} /></button>
+          <button onClick={() => setZoom(0.8)} className="btn-secondary px-2.5 py-2 min-h-[44px]" data-tip="Reset zoom"><Maximize2 size={15} /></button>
         </div>
       </div>
 

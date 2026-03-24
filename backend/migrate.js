@@ -212,6 +212,110 @@ async function runAdditiveMigrations() {
       ON CONFLICT (employee_id, leave_type_id, year) DO NOTHING
     `);
 
+    // ── audit_logs ─────────────────────────────────────────────────────────────
+    // Tracks every significant action for compliance and debugging.
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
+        action_type   VARCHAR(50) NOT NULL,
+        entity_type   VARCHAR(50),
+        entity_id     VARCHAR(100),
+        old_value     JSONB,
+        new_value     JSONB,
+        ip_address    VARCHAR(45),
+        user_agent    TEXT,
+        details       TEXT,
+        created_at    TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_audit_logs_user   ON audit_logs(user_id)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_audit_logs_time   ON audit_logs(created_at)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action_type)');
+
+    // ── attendance_records: add created_by / updated_by for admin tracking ────
+    const attCols = [
+      { name: 'created_by', sql: 'ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id) ON DELETE SET NULL' },
+      { name: 'updated_by', sql: 'ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS updated_by UUID REFERENCES users(id) ON DELETE SET NULL' },
+    ];
+    for (const col of attCols) {
+      try { await db.query(col.sql); } catch { /* already exists */ }
+    }
+
+    // ── Index on attendance check_in for time-range queries ──────────────────
+    await db.query('CREATE INDEX IF NOT EXISTS idx_attendance_checkin ON attendance_records(check_in)');
+
+    // ── device_connections ───────────────────────────────────────────────────
+    // Stores ZKTeco (or other) biometric device connection configs.
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS device_connections (
+        id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        name            VARCHAR(100) NOT NULL,
+        ip_address      VARCHAR(45)  NOT NULL,
+        port            INT          NOT NULL DEFAULT 4370,
+        connection_timeout INT       NOT NULL DEFAULT 5000,
+        device_password VARCHAR(100),
+        timezone        VARCHAR(50)  DEFAULT 'Asia/Karachi',
+        auto_sync       BOOLEAN      DEFAULT TRUE,
+        sync_interval   INT          DEFAULT 30,
+        is_active       BOOLEAN      DEFAULT TRUE,
+        last_sync_at    TIMESTAMP,
+        last_sync_status VARCHAR(20),
+        last_sync_message TEXT,
+        total_synced    INT          DEFAULT 0,
+        created_by      UUID REFERENCES users(id) ON DELETE SET NULL,
+        created_at      TIMESTAMP    DEFAULT NOW(),
+        updated_at      TIMESTAMP    DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_device_connections_active ON device_connections(is_active)');
+
+    // ── device_attendance_raw ────────────────────────────────────────────────
+    // Raw punch logs from the device — one row per finger-scan event.
+    // Kept separate from attendance_records so we have a clean audit trail.
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS device_attendance_raw (
+        id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        device_id       UUID NOT NULL REFERENCES device_connections(id) ON DELETE CASCADE,
+        device_user_id  VARCHAR(50)  NOT NULL,
+        punch_time      TIMESTAMP WITH TIME ZONE NOT NULL,
+        punch_state     INT,
+        verified        INT,
+        employee_id     UUID REFERENCES employees(id) ON DELETE SET NULL,
+        synced_to_attendance BOOLEAN DEFAULT FALSE,
+        created_at      TIMESTAMP DEFAULT NOW(),
+        UNIQUE(device_id, device_user_id, punch_time)
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_device_raw_device ON device_attendance_raw(device_id)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_device_raw_punch ON device_attendance_raw(punch_time)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_device_raw_employee ON device_attendance_raw(employee_id)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_device_raw_unsynced ON device_attendance_raw(synced_to_attendance) WHERE synced_to_attendance = FALSE');
+
+    // ── device_user_mapping ──────────────────────────────────────────────────
+    // Maps device-side user IDs (badge numbers) to employee records.
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS device_user_mapping (
+        id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        device_id       UUID NOT NULL REFERENCES device_connections(id) ON DELETE CASCADE,
+        device_user_id  VARCHAR(50) NOT NULL,
+        device_user_name VARCHAR(100),
+        employee_id     UUID REFERENCES employees(id) ON DELETE SET NULL,
+        created_at      TIMESTAMP DEFAULT NOW(),
+        updated_at      TIMESTAMP DEFAULT NOW(),
+        UNIQUE(device_id, device_user_id)
+      )
+    `);
+
+    // ── Add source column to attendance_records to track origin ──────────────
+    try {
+      await db.query("ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'manual'");
+    } catch { /* already exists */ }
+    try {
+      await db.query("ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS device_id UUID REFERENCES device_connections(id) ON DELETE SET NULL");
+    } catch { /* already exists */ }
+
     console.log('Additive migrations completed.');
   } catch (err) {
     console.error('Additive migration error:', err.message);

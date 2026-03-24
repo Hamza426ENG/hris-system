@@ -199,7 +199,7 @@ function AnnouncementsContent() {
                           onClick={() => handleDelete(a.id)}
                           disabled={deleting === a.id}
                           className="p-1.5 rounded text-oe-muted hover:text-oe-danger hover:bg-oe-surface transition-colors flex-shrink-0"
-                          title="Delete announcement"
+                          data-tip="Delete announcement"
                         >
                           <Trash2 size={14} />
                         </button>

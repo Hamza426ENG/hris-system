@@ -4,13 +4,9 @@ import { employeesAPI, departmentsAPI } from '@/services/api';
 import Modal from '@/components/common/Modal';
 import { Plus, Search, Download, Eye, Edit, UserX, Users } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useConfig } from '@/context/ConfigContext';
 import PrivateRoute from '@/components/auth/PrivateRoute';
 import Layout from '@/components/layout/Layout';
-
-const EMPLOYMENT_TYPES = ['full_time', 'part_time', 'contract', 'intern', 'consultant'];
-const STATUSES = ['active', 'inactive', 'on_leave', 'terminated', 'probation'];
-const GENDERS = ['male', 'female', 'other', 'prefer_not_to_say'];
-const MARITAL = ['single', 'married', 'divorced', 'widowed'];
 
 const initForm = {
   first_name: '', last_name: '', middle_name: '', date_of_birth: '', gender: '', marital_status: '',
@@ -25,6 +21,7 @@ const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'sho
 
 function EmployeesContent() {
   const { user } = useAuth();
+  const { employmentTypes: EMPLOYMENT_TYPES, employeeStatuses: STATUSES, genders: GENDERS, maritalStatuses: MARITAL } = useConfig();
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [total, setTotal] = useState(0);
@@ -218,15 +215,15 @@ function EmployeesContent() {
                   <td className="table-cell">{statusBadge(emp.status)}</td>
                   <td className="table-cell">
                     <div className="flex items-center gap-1">
-                      <button onClick={e => { e.stopPropagation(); router.push(`/employees/${emp.id}`); }} className="p-1.5 hover:bg-oe-surface rounded-lg text-oe-muted hover:text-oe-text transition-colors" title="View">
+                      <button onClick={e => { e.stopPropagation(); router.push(`/employees/${emp.id}`); }} className="p-1.5 hover:bg-oe-surface rounded-lg text-oe-muted hover:text-oe-text transition-colors" data-tip="View">
                         <Eye size={14} />
                       </button>
                       {isHR && (
                         <>
-                          <button onClick={(e) => openEdit(emp, e)} className="p-1.5 hover:bg-oe-surface rounded-lg text-oe-muted hover:text-oe-primary transition-colors" title="Edit">
+                          <button onClick={(e) => openEdit(emp, e)} className="p-1.5 hover:bg-oe-surface rounded-lg text-oe-muted hover:text-oe-primary transition-colors" data-tip="Edit">
                             <Edit size={14} />
                           </button>
-                          <button onClick={(e) => handleDeactivate(emp.id, e)} className="p-1.5 hover:bg-oe-surface rounded-lg text-oe-muted hover:text-oe-danger transition-colors" title="Deactivate">
+                          <button onClick={(e) => handleDeactivate(emp.id, e)} className="p-1.5 hover:bg-oe-surface rounded-lg text-oe-muted hover:text-oe-danger transition-colors" data-tip="Deactivate">
                             <UserX size={14} />
                           </button>
                         </>
@@ -279,6 +276,7 @@ function EmployeesContent() {
                       <div className="flex gap-1">
                         <button
                           onClick={(e) => openEdit(emp, e)}
+                          data-tip="Edit"
                           className="p-1.5 hover:bg-oe-surface rounded-lg text-oe-muted hover:text-oe-primary transition-colors"
                         >
                           <Edit size={13} />

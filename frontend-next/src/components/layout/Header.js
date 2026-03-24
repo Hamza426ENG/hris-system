@@ -9,6 +9,7 @@ const PAGE_TITLES = {
   '/': 'Dashboard',
   '/employees': 'Employees',
   '/organogram': 'Organogram',
+  '/attendance': 'Attendance',
   '/leaves': 'Leave Management',
   '/salary': 'Salary & Compensation',
   '/payroll': 'Payroll',
@@ -152,7 +153,7 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
         {/* Dark mode toggle */}
         <button
           onClick={toggleTheme}
-          title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+          data-tip={dark ? 'Light mode' : 'Dark mode'}
           className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-oe-muted hover:text-oe-text hover:bg-oe-bg transition-colors"
         >
           {dark ? <Sun size={17} /> : <Moon size={17} />}
