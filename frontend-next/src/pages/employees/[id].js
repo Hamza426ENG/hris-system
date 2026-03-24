@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { employeesAPI, leavesAPI, salaryAPI } from '@/services/api';
+import useGoBack from '@/hooks/useGoBack';
 import { ArrowLeft, Mail, Phone, MapPin, Calendar, Briefcase, User, DollarSign, Clock, Plus, Camera } from 'lucide-react';
 import Modal from '@/components/common/Modal';
 import Avatar from '@/components/common/Avatar';
@@ -17,6 +18,7 @@ const TABS = ['Overview', 'Leave History', 'Salary & Comp', 'Payroll History'];
 function EmployeeProfileContent() {
   const router = useRouter();
   const { id } = router.query;
+  const goBack = useGoBack('/employees');
   const { user, permissions } = useAuth();
   const canEditPhoto = permissions?.canManageAll;
 
@@ -96,8 +98,8 @@ function EmployeeProfileContent() {
   return (
     <div className="space-y-5">
       {/* Back */}
-      <button onClick={() => router.push('/employees')} className="flex items-center gap-2 text-oe-muted hover:text-oe-text transition-colors text-sm">
-        <ArrowLeft size={16} /> Back to Employees
+      <button onClick={goBack} className="flex items-center gap-2 text-oe-muted hover:text-oe-text transition-colors text-sm">
+        <ArrowLeft size={16} /> Back
       </button>
 
       {/* Header Card */}

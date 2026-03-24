@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthContext';
+import useGoBack from '@/hooks/useGoBack';
 import { useToast } from '@/components/common/Toast';
 import { ticketsAPI, departmentsAPI } from '@/services/api';
 import {
@@ -110,6 +111,7 @@ export default function TicketDetailPage() {
   const router = useRouter();
   const { id } = router.query;
   const { user, permissions } = useAuth();
+  const goBack = useGoBack('/tickets');
   const { toast } = useToast();
 
   const [ticket, setTicket] = useState(null);
@@ -244,13 +246,13 @@ export default function TicketDetailPage() {
       {/* ═══ BACK BUTTON + BREADCRUMB ═══ */}
       <div className="flex items-center gap-3">
         <button
-          onClick={() => router.push('/tickets')}
+          onClick={goBack}
           className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md border border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/85 hover:bg-slate-50 dark:hover:bg-white/5 hover:border-oe-primary/30 transition-colors"
         >
           <ArrowLeft size={14} /> Back
         </button>
         <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-white/95">
-          <button onClick={() => router.push('/tickets')} className="hover:text-oe-primary transition-colors flex items-center gap-1">
+          <button onClick={goBack} className="hover:text-oe-primary transition-colors flex items-center gap-1">
             <TicketCheck size={12} /> Tickets
           </button>
           <ChevronRight size={12} />

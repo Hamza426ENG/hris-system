@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { payrollAPI } from '@/services/api';
+import useGoBack from '@/hooks/useGoBack';
 import { ArrowLeft, Play, CheckCircle, XCircle, Download } from 'lucide-react';
 import PrivateRoute from '@/components/auth/PrivateRoute';
 import Layout from '@/components/layout/Layout';
@@ -11,6 +12,7 @@ const fmtCurrency = (n) => n ? new Intl.NumberFormat('en-US', { style: 'currency
 function PayrollDetailContent() {
   const router = useRouter();
   const { id } = router.query;
+  const goBack = useGoBack('/payroll');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -64,8 +66,8 @@ function PayrollDetailContent() {
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3 no-print">
-        <button onClick={() => router.push('/payroll')} className="flex items-center gap-2 text-oe-muted hover:text-oe-text transition-colors text-sm">
-          <ArrowLeft size={16} /> Back to Payroll
+        <button onClick={goBack} className="flex items-center gap-2 text-oe-muted hover:text-oe-text transition-colors text-sm">
+          <ArrowLeft size={16} /> Back
         </button>
       </div>
 

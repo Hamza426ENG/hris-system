@@ -24,7 +24,7 @@ const NAV_GROUPS = [
     label: 'People',
     items: [
       { to: '/employees', icon: Users, label: 'Employees', roles: ALL_ROLES_KEY },
-      { to: '/organogram', icon: GitBranch, label: 'Organogram', minLevel: 'team_lead' },
+      { to: '/organogram', icon: GitBranch, label: 'Organogram', roles: ALL_ROLES_KEY },
       { to: '/attendance', icon: Fingerprint, label: 'Attendance', roles: ALL_ROLES_KEY },
       { to: '/leaves', icon: Calendar, label: 'Leave Management', roles: ALL_ROLES_KEY },
       { to: '/tickets', icon: TicketCheck, label: 'Tickets', roles: ALL_ROLES_KEY },

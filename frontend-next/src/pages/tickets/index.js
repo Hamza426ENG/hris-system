@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthContext';
+import useGoBack from '@/hooks/useGoBack';
 import { useToast } from '@/components/common/Toast';
 import { ticketsAPI, departmentsAPI } from '@/services/api';
 import {
@@ -115,6 +116,7 @@ const fmtTimeAgo = (d) => {
 export default function TicketsPage() {
   const router = useRouter();
   const { user, permissions } = useAuth();
+  const goBack = useGoBack('/');
   const { toast } = useToast();
   const [view, setView] = useState('list');
   const [tickets, setTickets] = useState([]);
@@ -210,9 +212,9 @@ export default function TicketsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => router.push('/')}
+            onClick={goBack}
             className="flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 dark:border-white/10 text-slate-500 dark:text-white/50 hover:bg-slate-50 dark:hover:bg-white/5 hover:border-oe-primary/30 transition-colors"
-            title="Back to Dashboard"
+            title="Back"
           >
             <ChevronLeft size={16} />
           </button>

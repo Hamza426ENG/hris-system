@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthContext';
+import useGoBack from '@/hooks/useGoBack';
 import { ticketsAPI, departmentsAPI } from '@/services/api';
 import { BarChart3, Loader2, TrendingUp, Shield, AlertTriangle, CheckCircle, TicketCheck, ChevronRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend } from 'recharts';
@@ -11,6 +12,7 @@ const PRIORITY_COLORS = { low: '#94A3B8', medium: '#3B82F6', high: '#F97316', cr
 export default function TicketAnalyticsPage() {
   const router = useRouter();
   const { permissions } = useAuth();
+  const goBack = useGoBack('/tickets');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [departments, setDepartments] = useState([]);
@@ -80,7 +82,7 @@ export default function TicketAnalyticsPage() {
     <div className="space-y-4">
       {/* Breadcrumb */}
       <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-white/40">
-        <button onClick={() => router.push('/tickets')} className="hover:text-oe-primary transition-colors flex items-center gap-1">
+        <button onClick={goBack} className="hover:text-oe-primary transition-colors flex items-center gap-1">
           <TicketCheck size={12} /> Tickets
         </button>
         <ChevronRight size={12} />
