@@ -299,53 +299,7 @@ function DashboardContent() {
 
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Department Headcount */}
-        <div className="card lg:col-span-2">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-oe-text">Department Headcount</h3>
-            <button onClick={() => router.push('/reports')} className="text-xs text-oe-primary hover:underline flex items-center gap-1">
-              View Report <ChevronRight size={12} />
-            </button>
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={deptHeadcount?.slice(0, 7)} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-              <XAxis dataKey="code" tick={{ fill: '#6B8DB5', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#6B8DB5', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ background: '#111827', border: '1px solid #1E3A5F', borderRadius: 8, color: '#E8F0FE' }} />
-              <Bar dataKey="actual_count" fill="#1D6BE4" radius={[4, 4, 0, 0]} name="Employees" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Leave Summary Pie */}
-        <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-oe-text">Leave Types (YTD)</h3>
-          </div>
-          <ResponsiveContainer width="100%" height={160}>
-            <PieChart>
-              <Pie data={leaveSummary?.filter(l => parseInt(l.approved) > 0)} dataKey="approved" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={65}>
-                {leaveSummary?.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-              </Pie>
-              <Tooltip contentStyle={{ background: '#111827', border: '1px solid #1E3A5F', borderRadius: 8, color: '#E8F0FE' }} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="space-y-1 mt-2">
-            {leaveSummary?.slice(0, 4).map((l, i) => (
-              <div key={i} className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full" style={{ background: COLORS[i % COLORS.length] }} />
-                  <span className="text-oe-muted">{l.name}</span>
-                </div>
-                <span className="text-oe-text font-medium">{l.approved} approved</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ═══ MY ASSIGNED TICKETS ═══ */}
+{/*═══ MY ASSIGNED TICKETS ═══*/}
       {myTickets.length > 0 && (
         <div className="card">
           <div className="flex items-center justify-between mb-4">
@@ -399,6 +353,55 @@ function DashboardContent() {
           </div>
         </div>
       )}
+
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Department Headcount */}
+        <div className="card lg:col-span-2">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-oe-text">Department Headcount</h3>
+            <button onClick={() => router.push('/reports')} className="text-xs text-oe-primary hover:underline flex items-center gap-1">
+              View Report <ChevronRight size={12} />
+            </button>
+          </div>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={deptHeadcount?.slice(0, 7)} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+              <XAxis dataKey="code" tick={{ fill: '#6B8DB5', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#6B8DB5', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ background: '#111827', border: '1px solid #1E3A5F', borderRadius: 8, color: '#E8F0FE' }} />
+              <Bar dataKey="actual_count" fill="#1D6BE4" radius={[4, 4, 0, 0]} name="Employees" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Leave Summary Pie */}
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-oe-text">Leave Types (YTD)</h3>
+          </div>
+          <ResponsiveContainer width="100%" height={160}>
+            <PieChart>
+              <Pie data={leaveSummary?.filter(l => parseInt(l.approved) > 0)} dataKey="approved" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={65}>
+                {leaveSummary?.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+              </Pie>
+              <Tooltip contentStyle={{ background: '#111827', border: '1px solid #1E3A5F', borderRadius: 8, color: '#E8F0FE' }} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="space-y-1 mt-2">
+            {leaveSummary?.slice(0, 4).map((l, i) => (
+              <div key={i} className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full" style={{ background: COLORS[i % COLORS.length] }} />
+                  <span className="text-oe-muted">{l.name}</span>
+                </div>
+                <span className="text-oe-text font-medium">{l.approved} approved</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Leaves */}
