@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthContext';
-import { leavesAPI, announcementsAPI } from '@/services/api';
-import { Calendar, AlertCircle, ChevronRight, Clock } from 'lucide-react';
+import { leavesAPI, announcementsAPI, ticketsAPI } from '@/services/api';
+import { Calendar, AlertCircle, ChevronRight, Clock, TicketCheck } from 'lucide-react';
 
 function fmtDate(d) {
   if (!d) return '';
@@ -17,6 +17,7 @@ export default function StartupNotificationModal() {
   const [visible, setVisible] = useState(false);
   const [pendingLeaves, setPendingLeaves] = useState([]);
   const [urgentAnnouncements, setUrgentAnn] = useState([]);
+  const [assignedTickets, setAssignedTickets] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -33,9 +34,10 @@ export default function StartupNotificationModal() {
 
     setLoading(true);
     try {
-      const [leavesRes, annRes] = await Promise.allSettled([
+      const [leavesRes, annRes, ticketsRes] = await Promise.allSettled([
         permissions?.isTeamLead ? leavesAPI.list({ status: 'pending' }) : Promise.resolve({ data: [] }),
         announcementsAPI.list(),
+        ticketsAPI.list({ assigned_to: user.id, status: 'open', limit: 5 }).catch(() => ({ data: { data: [] } })),
       ]);
 
       const leaves = leavesRes.status === 'fulfilled' ? (leavesRes.value.data || []).slice(0, 5) : [];
@@ -43,10 +45,17 @@ export default function StartupNotificationModal() {
         ? (annRes.value.data || []).filter(a => a.priority === 'urgent' || a.priority === 'high').slice(0, 4)
         : [];
 
+      let tickets = [];
+      if (ticketsRes.status === 'fulfilled') {
+        const tData = ticketsRes.value?.data?.data || ticketsRes.value?.data || [];
+        tickets = Array.isArray(tData) ? tData.slice(0, 5) : [];
+      }
+
       setPendingLeaves(leaves);
       setUrgentAnn(anns);
+      setAssignedTickets(tickets);
 
-      if (leaves.length > 0 || anns.length > 0) {
+      if (leaves.length > 0 || anns.length > 0 || tickets.length > 0) {
         setOpen(true);
         requestAnimationFrame(() => requestAnimationFrame(() => setVisible(true)));
       }
@@ -69,7 +78,7 @@ export default function StartupNotificationModal() {
 
   if (!open || loading) return null;
 
-  const total = pendingLeaves.length + urgentAnnouncements.length;
+  const total = pendingLeaves.length + urgentAnnouncements.length + assignedTickets.length;
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
@@ -158,18 +167,61 @@ export default function StartupNotificationModal() {
                 ))}
               </>
             )}
+
+            {/* Assigned Tickets */}
+            {assignedTickets.length > 0 && (
+              <>
+                {(pendingLeaves.length > 0 || urgentAnnouncements.length > 0) && <div className="border-t border-oe-border/40 my-1" />}
+                <div className="flex items-center gap-2 px-2 pt-2 pb-1">
+                  <TicketCheck size={12} className="text-violet-500" />
+                  <span className="text-[11px] font-semibold text-oe-muted uppercase tracking-wider">
+                    Assigned Tickets ({assignedTickets.length})
+                  </span>
+                </div>
+                {assignedTickets.map(t => {
+                  const priorityColor = t.priority === 'critical' ? 'bg-red-500/10 text-red-500' : t.priority === 'high' ? 'bg-orange-500/10 text-orange-500' : 'bg-violet-500/10 text-violet-500';
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => goTo(`/tickets/${t.id}`)}
+                      className="w-full flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-oe-bg transition-colors text-left"
+                    >
+                      <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5 ${priorityColor}`}>
+                        <TicketCheck size={12} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-oe-text line-clamp-1">{t.title}</div>
+                        <div className="text-xs text-oe-muted mt-0.5">
+                          {t.ticket_number} · {(t.priority || 'medium').charAt(0).toUpperCase() + (t.priority || 'medium').slice(1)}
+                        </div>
+                      </div>
+                      <ChevronRight size={14} className="text-oe-muted flex-shrink-0 mt-0.5" />
+                    </button>
+                  );
+                })}
+              </>
+            )}
           </div>
 
           {/* Footer — mandatory action */}
-          <div className="px-4 py-3 border-t border-oe-border/50 bg-oe-bg">
-            {pendingLeaves.length > 0 ? (
+          <div className="px-4 py-3 border-t border-oe-border/50 bg-oe-bg space-y-2">
+            {pendingLeaves.length > 0 && (
               <button
                 onClick={() => goTo('/leaves?status=pending')}
                 className="w-full py-2.5 rounded-lg text-sm font-semibold text-white gradient-bg hover:opacity-90 transition-opacity"
               >
                 Review Pending Leaves
               </button>
-            ) : (
+            )}
+            {assignedTickets.length > 0 && (
+              <button
+                onClick={() => goTo('/tickets')}
+                className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity ${pendingLeaves.length > 0 ? 'border border-oe-border text-oe-text hover:bg-oe-surface' : 'text-white gradient-bg hover:opacity-90'}`}
+              >
+                View Assigned Tickets ({assignedTickets.length})
+              </button>
+            )}
+            {pendingLeaves.length === 0 && assignedTickets.length === 0 && urgentAnnouncements.length > 0 && (
               <button
                 onClick={() => goTo('/announcements')}
                 className="w-full py-2.5 rounded-lg text-sm font-semibold text-white gradient-bg hover:opacity-90 transition-opacity"

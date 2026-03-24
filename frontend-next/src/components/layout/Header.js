@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
-import { Menu, Bell, LogOut, User, ChevronDown, CheckCircle2, Clock, Megaphone, Sun, Moon } from 'lucide-react';
+import { Menu, Bell, LogOut, User, ChevronDown, CheckCircle2, Clock, Megaphone, Sun, Moon, TicketCheck } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { leavesAPI, announcementsAPI } from '@/services/api';
+import { leavesAPI, announcementsAPI, ticketsAPI } from '@/services/api';
 
 const PAGE_TITLES = {
   '/': 'Dashboard',
@@ -16,6 +16,7 @@ const PAGE_TITLES = {
   '/reports': 'Reports',
   '/settings': 'Settings',
   '/admin': 'Admin Panel',
+  '/tickets': 'Tickets',
 };
 
 export default function Header({ sidebarOpen, setSidebarOpen }) {
@@ -77,9 +78,10 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
   const loadNotifications = async (silent = false) => {
     if (!silent) setNotifLoading(true);
     try {
-      const [leavesRes, announcementsRes] = await Promise.all([
+      const [leavesRes, announcementsRes, ticketNotifsRes] = await Promise.all([
         leavesAPI.list({ status: 'pending' }),
         announcementsAPI.list(),
+        ticketsAPI.notifications({ limit: 10, unread_only: 'true' }).catch(() => ({ data: { notifications: [] } })),
       ]);
       const leaveNotifs = (leavesRes.data || []).slice(0, 5).map(l => ({
         id: `leave-${l.id}`,
@@ -97,10 +99,25 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
         time: a.created_at,
         path: '/settings',
       }));
-      const all = [...leaveNotifs, ...announcementNotifs];
+      const ticketNotifData = ticketNotifsRes?.data?.notifications || [];
+      const ticketNotifs = ticketNotifData.slice(0, 8).map(tn => ({
+        id: `ticket-${tn.id}`,
+        _realId: tn.id,
+        type: 'ticket',
+        title: tn.notification_title || 'Ticket Update',
+        subtitle: tn.ticket_title || tn.notification_message || '',
+        time: tn.created_at,
+        path: tn.ticket_id ? `/tickets/${tn.ticket_id}` : '/tickets',
+      }));
+      const all = [...ticketNotifs, ...leaveNotifs, ...announcementNotifs].sort((a, b) => new Date(b.time) - new Date(a.time));
       setNotifications(all);
       // If panel is open, auto-mark new notifications as seen
-      if (notifPanelOpenRef.current) markAllSeen(all);
+      if (notifPanelOpenRef.current) {
+        markAllSeen(all);
+        // Also mark ticket notifications as read on the server
+        const ticketIds = ticketNotifData.filter(t => !t.is_read).map(t => t.id);
+        if (ticketIds.length > 0) ticketsAPI.markNotificationsRead({ notification_ids: ticketIds }).catch(() => {});
+      }
     } catch {
       if (!silent) setNotifications([]);
     } finally {
@@ -115,6 +132,9 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
     if (next) {
       loadNotifications();
       markAllSeen(notifications); // immediately clear badge
+      // Mark all ticket notifications as read on server
+      const ticketIds = notifications.filter(n => n.type === 'ticket' && n._realId).map(n => n._realId);
+      if (ticketIds.length > 0) ticketsAPI.markNotificationsRead({ notification_ids: ticketIds }).catch(() => {});
     }
   };
 
@@ -192,32 +212,49 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
                     <span className="text-sm">All caught up!</span>
                   </div>
                 ) : (
-                  notifications.map(n => (
-                    <button
-                      key={n.id}
-                      onClick={() => { router.push(n.path); setNotifOpen(false); }}
-                      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-oe-bg transition-colors border-b border-oe-border last:border-0 text-left"
-                    >
-                      <div className={`mt-0.5 flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${n.type === 'leave' ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400' : 'bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-400'}`}>
-                        {n.type === 'leave' ? <Clock size={14} /> : <Megaphone size={14} />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-oe-text truncate">{n.title}</div>
-                        <div className="text-xs text-oe-muted truncate mt-0.5">{n.subtitle}</div>
-                        <div className="text-xs text-oe-muted mt-1">{formatTime(n.time)}</div>
-                      </div>
-                    </button>
-                  ))
+                  notifications.map(n => {
+                    const iconCfg = n.type === 'ticket'
+                      ? { bg: 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400', icon: <TicketCheck size={14} /> }
+                      : n.type === 'leave'
+                        ? { bg: 'bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400', icon: <Clock size={14} /> }
+                        : { bg: 'bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-400', icon: <Megaphone size={14} /> };
+                    return (
+                      <button
+                        key={n.id}
+                        onClick={() => { router.push(n.path); setNotifOpen(false); }}
+                        className="w-full flex items-start gap-3 px-4 py-3 hover:bg-oe-bg transition-colors border-b border-oe-border last:border-0 text-left"
+                      >
+                        <div className={`mt-0.5 flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center ${iconCfg.bg}`}>
+                          {iconCfg.icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-oe-text truncate">{n.title}</div>
+                          <div className="text-xs text-oe-muted truncate mt-0.5">{n.subtitle}</div>
+                          <div className="text-xs text-oe-muted mt-1">{formatTime(n.time)}</div>
+                        </div>
+                      </button>
+                    );
+                  })
                 )}
               </div>
               {notifications.length > 0 && (
-                <div className="px-4 py-2.5 border-t border-oe-border bg-oe-bg">
-                  <button
-                    onClick={() => { router.push('/leaves'); setNotifOpen(false); }}
-                    className="text-xs text-oe-primary hover:underline w-full text-center"
-                  >
-                    View all pending leaves
-                  </button>
+                <div className="px-4 py-2.5 border-t border-oe-border bg-oe-bg flex items-center justify-center gap-3">
+                  {notifications.some(n => n.type === 'ticket') && (
+                    <button
+                      onClick={() => { router.push('/tickets'); setNotifOpen(false); }}
+                      className="text-xs text-oe-primary hover:underline"
+                    >
+                      View Tickets
+                    </button>
+                  )}
+                  {notifications.some(n => n.type === 'leave') && (
+                    <button
+                      onClick={() => { router.push('/leaves'); setNotifOpen(false); }}
+                      className="text-xs text-oe-primary hover:underline"
+                    >
+                      View Leaves
+                    </button>
+                  )}
                 </div>
               )}
             </div>

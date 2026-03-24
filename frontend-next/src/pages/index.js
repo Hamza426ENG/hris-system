@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
-import { dashboardAPI, announcementsAPI } from '@/services/api';
-import { Users, Calendar, Clock, Building2, TrendingUp, DollarSign, Gift, ChevronRight, Megaphone, AlertCircle, AlertTriangle, Info } from 'lucide-react';
+import { dashboardAPI, announcementsAPI, ticketsAPI } from '@/services/api';
+import { useAuth } from '@/context/AuthContext';
+import { Users, Calendar, Clock, Building2, TrendingUp, DollarSign, Gift, ChevronRight, Megaphone, AlertCircle, AlertTriangle, Info, TicketCheck, ChevronsUp, ChevronUp, Minus, ChevronDown } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import PrivateRoute from '@/components/auth/PrivateRoute';
 import Layout from '@/components/layout/Layout';
@@ -155,7 +156,7 @@ const AnnouncementTicker = React.memo(function AnnouncementTicker({ items, onVie
         <div className="flex items-center justify-between px-4 py-3 border-b border-oe-border/50">
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-oe-success animate-pulse" />
-            <span className="text-sm font-semibold text-oe-text">Live Updates</span>
+            <span className="text-sm font-semibold text-oe-text">Announcements</span>
           </div>
           <button onClick={onViewAll} className="text-[11px] text-oe-primary hover:underline flex items-center gap-0.5">
             All <ChevronRight size={11} />
@@ -175,7 +176,7 @@ const AnnouncementTicker = React.memo(function AnnouncementTicker({ items, onVie
       <div className="flex items-center justify-between px-4 py-3 border-b border-oe-border/50 flex-shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-1.5 h-1.5 rounded-full bg-oe-success animate-pulse" />
-          <span className="text-sm font-semibold text-oe-text">Live Updates</span>
+          <span className="text-sm font-semibold text-oe-text">Announcements</span>
         </div>
         <button onClick={onViewAll} className="text-[11px] text-oe-primary hover:underline flex items-center gap-0.5">
           All <ChevronRight size={11} />
@@ -202,15 +203,58 @@ const AnnouncementTicker = React.memo(function AnnouncementTicker({ items, onVie
   );
 }, (prev, next) => prev.items === next.items);
 
+const PRIORITY_ICON_MAP = {
+  critical: { icon: ChevronsUp, cls: 'text-red-500' },
+  high:     { icon: ChevronUp,  cls: 'text-orange-500' },
+  medium:   { icon: Minus,      cls: 'text-amber-500' },
+  low:      { icon: ChevronDown, cls: 'text-blue-400' },
+};
+
+const STATUS_BADGE = {
+  open:        'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300',
+  in_progress: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+  on_hold:     'bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300',
+};
+
 function DashboardContent() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [announcements, setAnnouncements] = useState([]);
+  const [myTickets, setMyTickets] = useState([]);
   const router = useRouter();
+  const { user } = useAuth();
 
   useEffect(() => {
     dashboardAPI.stats().then(res => setData(res.data)).catch(console.error).finally(() => setLoading(false));
     announcementsAPI.list().then(res => setAnnouncements(res.data || [])).catch(() => {});
+    if (user?.id) {
+      ticketsAPI.list({ assigned_to: user.id, limit: 10, sort_by: 'priority', sort_order: 'desc' })
+        .then(res => {
+          const tickets = res.data?.data || [];
+          setMyTickets(tickets.filter(t => !['closed', 'resolved'].includes(t.status)));
+        })
+        .catch(() => {});
+    }
+  }, [user?.id]);
+
+  // Real-time announcement updates via SSE
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('hris_token') : null;
+    if (!token) return;
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
+    const es = new EventSource(`${API_URL}/announcements/stream?token=${encodeURIComponent(token)}`);
+    es.onmessage = (e) => {
+      if (e.data === 'connected') return;
+      try {
+        const data = JSON.parse(e.data);
+        if (data.__deleted) {
+          setAnnouncements(prev => prev.filter(a => a.id !== data.id));
+        } else {
+          setAnnouncements(prev => prev.some(a => a.id === data.id) ? prev : [data, ...prev]);
+        }
+      } catch {}
+    };
+    return () => es.close();
   }, []);
 
   if (loading) return (
@@ -300,6 +344,61 @@ function DashboardContent() {
           </div>
         </div>
       </div>
+
+      {/* ═══ MY ASSIGNED TICKETS ═══ */}
+      {myTickets.length > 0 && (
+        <div className="card">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <TicketCheck size={16} className="text-oe-primary" />
+              <h3 className="font-semibold text-oe-text">My Assigned Tickets</h3>
+              <span className="text-[10px] font-bold bg-oe-primary/10 text-oe-primary px-1.5 py-0.5 rounded-full">{myTickets.length}</span>
+            </div>
+            <button onClick={() => router.push('/tickets')} className="text-xs text-oe-primary hover:underline flex items-center gap-1">
+              View All <ChevronRight size={12} />
+            </button>
+          </div>
+          <div className="space-y-1">
+            {/* Column header */}
+            <div className="flex items-center gap-0 px-2 py-1.5 text-[10px] font-semibold text-slate-400 dark:text-white/35 uppercase tracking-wider">
+              <div className="w-5" />
+              <div className="w-20">Key</div>
+              <div className="flex-1">Summary</div>
+              <div className="w-20 text-center hidden sm:block">Status</div>
+              <div className="w-20 text-right hidden sm:block">Updated</div>
+            </div>
+            {myTickets.slice(0, 6).map(t => {
+              const pCfg = PRIORITY_ICON_MAP[t.priority] || PRIORITY_ICON_MAP.medium;
+              const PIcon = pCfg.icon;
+              const sBadge = STATUS_BADGE[t.status] || STATUS_BADGE.open;
+              const statusLabel = t.status === 'in_progress' ? 'IN PROGRESS' : t.status === 'on_hold' ? 'ON HOLD' : 'OPEN';
+              return (
+                <div
+                  key={t.id}
+                  onClick={() => router.push(`/tickets/${t.id}`)}
+                  className="flex items-center gap-0 px-2 py-2 rounded-lg hover:bg-blue-50/50 dark:hover:bg-white/[0.03] cursor-pointer transition-colors group border-b border-slate-100 dark:border-white/[0.04] last:border-0"
+                >
+                  <div className="w-5 flex-shrink-0">
+                    <PIcon size={13} className={pCfg.cls} strokeWidth={2.5} />
+                  </div>
+                  <div className="w-20 flex-shrink-0">
+                    <span className="text-[11px] font-medium text-oe-primary group-hover:underline">{t.ticket_number}</span>
+                  </div>
+                  <div className="flex-1 min-w-0 pr-2">
+                    <span className="text-sm text-slate-800 dark:text-white/90 truncate block">{t.title}</span>
+                  </div>
+                  <div className="w-20 hidden sm:flex justify-center flex-shrink-0">
+                    <span className={`inline-flex items-center rounded-sm px-1.5 py-px text-[9px] font-bold uppercase tracking-wider ${sBadge}`}>{statusLabel}</span>
+                  </div>
+                  <div className="w-20 hidden sm:block flex-shrink-0 text-right">
+                    <span className="text-[10px] text-slate-400 dark:text-white/30">{timeAgo(t.updated_at || t.created_at)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Leaves */}

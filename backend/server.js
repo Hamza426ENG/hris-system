@@ -55,6 +55,11 @@ app.use('/api/attendance', require('./routes/attendance'));
 app.use('/api/performance', require('./routes/performance'));
 app.use('/api/logs', require('./routes/logs'));
 app.use('/api/devices', require('./routes/devices'));
+app.use('/api/tickets', require('./routes/tickets'));
+
+// Serve ticket attachment uploads
+const path = require('path');
+app.use('/uploads/tickets', require('./middleware/auth').authenticate, require('express').static(path.join(__dirname, 'uploads', 'tickets')));
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));

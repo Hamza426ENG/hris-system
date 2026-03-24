@@ -106,8 +106,9 @@ export const dashboardAPI = {
 };
 
 export const announcementsAPI = {
-  list: () => api.get('/announcements'),
+  list: (params) => api.get('/announcements', { params }),
   create: (data) => api.post('/announcements', data),
+  update: (id, data) => api.patch(`/announcements/${id}`, data),
   delete: (id) => api.delete(`/announcements/${id}`),
 };
 
@@ -151,6 +152,38 @@ export const adminDataAPI = {
 
 export const configAPI = {
   get: () => api.get('/config'),
+};
+
+export const ticketsAPI = {
+  // Tickets CRUD
+  list: (params) => api.get('/tickets', { params }),
+  get: (id) => api.get(`/tickets/${id}`),
+  create: (data) => api.post('/tickets', data),
+  update: (id, data) => api.patch(`/tickets/${id}`, data),
+  delete: (id) => api.delete(`/tickets/${id}`),
+  resolve: (id, data) => api.post(`/tickets/${id}/resolve`, data),
+  close: (id, data) => api.post(`/tickets/${id}/close`, data),
+  reopen: (id, data) => api.post(`/tickets/${id}/reopen`, data),
+  // Stats & Analytics
+  stats: () => api.get('/tickets/stats/summary'),
+  analytics: (params) => api.get('/tickets/analytics/dashboard', { params }),
+  // Categories & SLA
+  categories: () => api.get('/tickets/categories'),
+  createCategory: (data) => api.post('/tickets/categories', data),
+  slaRules: () => api.get('/tickets/sla-rules'),
+  // Assignable users
+  assignableUsers: () => api.get('/tickets/assignable-users'),
+  // Comments
+  addComment: (ticketId, data) => api.post(`/tickets/${ticketId}/comments`, data),
+  editComment: (ticketId, commentId, data) => api.patch(`/tickets/${ticketId}/comments/${commentId}`, data),
+  deleteComment: (ticketId, commentId) => api.delete(`/tickets/${ticketId}/comments/${commentId}`),
+  // Attachments
+  uploadAttachment: (ticketId, formData) => api.post(`/tickets/${ticketId}/attachments`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  downloadAttachment: (ticketId, attachmentId) => api.get(`/tickets/${ticketId}/attachments/${attachmentId}/download`, { responseType: 'blob' }),
+  deleteAttachment: (ticketId, attachmentId) => api.delete(`/tickets/${ticketId}/attachments/${attachmentId}`),
+  // Notifications
+  notifications: (params) => api.get('/tickets/notifications', { params }),
+  markNotificationsRead: (data) => api.post('/tickets/notifications/mark-read', data),
 };
 
 export const devicesAPI = {

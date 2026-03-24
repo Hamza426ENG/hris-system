@@ -138,8 +138,8 @@ router.post('/', async (req, res) => {
     }
 
     const result = await db.query(`
-      INSERT INTO leave_requests (employee_id, leave_type_id, start_date, end_date, total_days, reason, half_day, half_day_period)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *
+      INSERT INTO leave_requests (employee_id, leave_type_id, start_date, end_date, total_days, reason, half_day, half_day_period, status)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending') RETURNING *
     `, [employee_id, leave_type_id, start_date, end_date, days, reason, half_day || false, half_day_period]);
 
     // Update pending days

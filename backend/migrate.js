@@ -316,7 +316,201 @@ async function runAdditiveMigrations() {
       await db.query("ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS device_id UUID REFERENCES device_connections(id) ON DELETE SET NULL");
     } catch { /* already exists */ }
 
-    console.log('Additive migrations completed.');
+    // ══════════════════════════════════════════════════════════════════════════
+    // ── TICKETING SYSTEM TABLES ──────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // ── ticket_status enum ───────────────────────────────────────────────────
+    try {
+      await db.query(`
+        DO $$ BEGIN
+          CREATE TYPE ticket_status AS ENUM ('open', 'in_progress', 'resolved', 'closed', 'on_hold');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+      `);
+    } catch (err) { /* already exists */ }
+
+    // ── ticket_priority enum ─────────────────────────────────────────────────
+    try {
+      await db.query(`
+        DO $$ BEGIN
+          CREATE TYPE ticket_priority AS ENUM ('low', 'medium', 'high', 'critical');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+      `);
+    } catch (err) { /* already exists */ }
+
+    // ── Sequence for ticket numbers ──────────────────────────────────────────
+    await db.query('CREATE SEQUENCE IF NOT EXISTS ticket_number_seq START 1');
+
+    // ── ticket_categories ────────────────────────────────────────────────────
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS ticket_categories (
+        id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        name            VARCHAR(100) NOT NULL UNIQUE,
+        description     TEXT,
+        department_id   UUID REFERENCES departments(id) ON DELETE SET NULL,
+        is_active       BOOLEAN DEFAULT TRUE,
+        created_at      TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    // ── tickets ──────────────────────────────────────────────────────────────
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS tickets (
+        id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        ticket_number        VARCHAR(20) UNIQUE NOT NULL,
+        title                VARCHAR(255) NOT NULL,
+        description          TEXT NOT NULL,
+        department_id        UUID NOT NULL REFERENCES departments(id),
+        category_id          UUID REFERENCES ticket_categories(id) ON DELETE SET NULL,
+        status               ticket_status NOT NULL DEFAULT 'open',
+        priority             ticket_priority NOT NULL DEFAULT 'medium',
+        created_by           UUID NOT NULL REFERENCES users(id),
+        assigned_to          UUID REFERENCES users(id),
+        created_at           TIMESTAMP DEFAULT NOW(),
+        updated_at           TIMESTAMP DEFAULT NOW(),
+        resolved_at          TIMESTAMP,
+        closed_at            TIMESTAMP,
+        sla_due_at           TIMESTAMP,
+        related_employee_id  UUID REFERENCES employees(id) ON DELETE SET NULL,
+        internal_notes       TEXT,
+        is_archived          BOOLEAN DEFAULT FALSE,
+        is_deleted           BOOLEAN DEFAULT FALSE
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_tickets_status     ON tickets(status)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_tickets_priority   ON tickets(priority)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_tickets_department ON tickets(department_id)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_tickets_assigned   ON tickets(assigned_to)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_tickets_created    ON tickets(created_at DESC)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_tickets_sla        ON tickets(sla_due_at)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_tickets_created_by ON tickets(created_by)');
+
+    // ── ticket_comments ──────────────────────────────────────────────────────
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS ticket_comments (
+        id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        ticket_id     UUID NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        user_id       UUID NOT NULL REFERENCES users(id),
+        comment_text  TEXT NOT NULL,
+        is_internal   BOOLEAN DEFAULT FALSE,
+        created_at    TIMESTAMP DEFAULT NOW(),
+        updated_at    TIMESTAMP DEFAULT NOW(),
+        is_deleted    BOOLEAN DEFAULT FALSE
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_ticket_comments_ticket ON ticket_comments(ticket_id)');
+
+    // ── ticket_attachments ───────────────────────────────────────────────────
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS ticket_attachments (
+        id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        ticket_id     UUID NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        uploaded_by   UUID NOT NULL REFERENCES users(id),
+        file_name     VARCHAR(255) NOT NULL,
+        file_path     VARCHAR(500) NOT NULL,
+        file_size     BIGINT,
+        file_type     VARCHAR(50),
+        uploaded_at   TIMESTAMP DEFAULT NOW(),
+        is_deleted    BOOLEAN DEFAULT FALSE
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_ticket_attachments_ticket ON ticket_attachments(ticket_id)');
+
+    // ── ticket_activity_log ──────────────────────────────────────────────────
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS ticket_activity_log (
+        id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        ticket_id   UUID NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        changed_by  UUID NOT NULL REFERENCES users(id),
+        action      VARCHAR(100) NOT NULL,
+        old_value   TEXT,
+        new_value   TEXT,
+        changed_at  TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_ticket_activity_ticket  ON ticket_activity_log(ticket_id)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_ticket_activity_changed ON ticket_activity_log(changed_at DESC)');
+
+    // ── ticket_sla_rules ─────────────────────────────────────────────────────
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS ticket_sla_rules (
+        id                     UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        priority               ticket_priority NOT NULL,
+        response_time_hours    INT NOT NULL,
+        resolution_time_hours  INT NOT NULL,
+        department_id          UUID REFERENCES departments(id) ON DELETE CASCADE,
+        is_active              BOOLEAN DEFAULT TRUE,
+        created_at             TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_sla_rules_priority_global ON ticket_sla_rules(priority) WHERE department_id IS NULL');
+    await db.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_sla_rules_priority_dept   ON ticket_sla_rules(priority, department_id) WHERE department_id IS NOT NULL');
+
+    // ── ticket_notifications ─────────────────────────────────────────────────
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS ticket_notifications (
+        id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        ticket_id           UUID REFERENCES tickets(id) ON DELETE CASCADE,
+        recipient_user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        notification_type   VARCHAR(100) NOT NULL,
+        notification_title  VARCHAR(255),
+        notification_message TEXT,
+        is_read             BOOLEAN DEFAULT FALSE,
+        created_at          TIMESTAMP DEFAULT NOW(),
+        read_at             TIMESTAMP
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_ticket_notif_user    ON ticket_notifications(recipient_user_id, is_read)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_ticket_notif_created ON ticket_notifications(created_at DESC)');
+
+    // ── Full-text search on tickets ──────────────────────────────────────────
+    try {
+      await db.query(`
+        CREATE INDEX IF NOT EXISTS idx_tickets_search
+        ON tickets USING GIN(to_tsvector('english', title || ' ' || COALESCE(description, '')))
+      `);
+    } catch (err) { /* GIN index may fail in some environments */ }
+
+    // ── Seed default SLA rules (global — no department) ──────────────────────
+    const slaDefaults = [
+      { priority: 'critical', response: 1, resolution: 8 },
+      { priority: 'high',     response: 2, resolution: 24 },
+      { priority: 'medium',   response: 8, resolution: 48 },
+      { priority: 'low',      response: 24, resolution: 120 },
+    ];
+    for (const sla of slaDefaults) {
+      await db.query(`
+        INSERT INTO ticket_sla_rules (priority, response_time_hours, resolution_time_hours, department_id)
+        SELECT $1::ticket_priority, $2, $3, NULL
+        WHERE NOT EXISTS (
+          SELECT 1 FROM ticket_sla_rules WHERE priority = $1::ticket_priority AND department_id IS NULL
+        )
+      `, [sla.priority, sla.response, sla.resolution]);
+    }
+
+    // ── Seed default ticket categories ───────────────────────────────────────
+    const defaultCategories = [
+      ['Technical Issue',  'Technical problems and system errors'],
+      ['Bug Report',       'Software bugs and defects'],
+      ['Feature Request',  'New feature suggestions'],
+      ['Access Request',   'System access and permission requests'],
+      ['Documentation',    'Documentation updates needed'],
+      ['Training/Support', 'Training or support requests'],
+      ['Maintenance',      'System maintenance requests'],
+      ['Compliance Issue',  'Compliance and audit related'],
+      ['Policy Update',    'Policy change requests'],
+      ['Other',            'Other requests'],
+    ];
+    for (const [name, desc] of defaultCategories) {
+      await db.query(
+        'INSERT INTO ticket_categories (name, description) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING',
+        [name, desc]
+      );
+    }
+
+    console.log('Additive migrations completed (including ticketing system).');
   } catch (err) {
     console.error('Additive migration error:', err.message);
   }

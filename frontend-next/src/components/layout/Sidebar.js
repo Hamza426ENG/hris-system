@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import {
   LayoutDashboard, Users, GitBranch, Calendar, DollarSign,
   BarChart3, Settings, ChevronLeft, Wallet, ShieldCheck, X, Megaphone,
-  Fingerprint
+  Fingerprint, TicketCheck
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useConfig } from '@/context/ConfigContext';
@@ -27,6 +27,7 @@ const NAV_GROUPS = [
       { to: '/organogram', icon: GitBranch, label: 'Organogram', minLevel: 'team_lead' },
       { to: '/attendance', icon: Fingerprint, label: 'Attendance', roles: ALL_ROLES_KEY },
       { to: '/leaves', icon: Calendar, label: 'Leave Management', roles: ALL_ROLES_KEY },
+      { to: '/tickets', icon: TicketCheck, label: 'Tickets', roles: ALL_ROLES_KEY },
     ],
   },
   {
