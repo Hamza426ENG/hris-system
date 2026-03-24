@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
-import { Menu, Bell, LogOut, User, ChevronDown, CheckCircle2, Clock, Megaphone, Sun, Moon, TicketCheck } from 'lucide-react';
+import { Menu, Bell, LogOut, User, ChevronDown, CheckCircle2, Clock, Megaphone, Sun, Moon, TicketCheck, Home } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { leavesAPI, announcementsAPI, ticketsAPI } from '@/services/api';
@@ -166,6 +166,15 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
         >
           <Menu size={20} />
         </button>
+        {router.pathname !== '/' && (
+          <button
+            onClick={() => router.push('/')}
+            title="Go to Dashboard"
+            className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-oe-muted hover:text-oe-text hover:bg-oe-bg transition-colors flex-shrink-0"
+          >
+            <Home size={18} />
+          </button>
+        )}
         <h1 className="text-base sm:text-lg font-semibold text-oe-text truncate">{title}</h1>
       </div>
 

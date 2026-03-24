@@ -510,7 +510,111 @@ async function runAdditiveMigrations() {
       );
     }
 
-    console.log('Additive migrations completed (including ticketing system).');
+    // ══════════════════════════════════════════════════════════════════════════
+    // ── EDGE BOT (AI CHATBOT) TABLES ─────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // ── chat_sessions ──────────────────────────────────────────────────────────
+    // Each conversation thread between a user and Edge Bot.
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS chat_sessions (
+        id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title       VARCHAR(255) DEFAULT 'New Chat',
+        is_active   BOOLEAN DEFAULT TRUE,
+        created_at  TIMESTAMP DEFAULT NOW(),
+        updated_at  TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chat_sessions(user_id, is_active)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated ON chat_sessions(updated_at DESC)');
+
+    // ── chat_messages ──────────────────────────────────────────────────────────
+    // Individual messages within a chat session.
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        session_id  UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+        role        VARCHAR(20) NOT NULL,
+        content     TEXT NOT NULL,
+        created_at  TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, created_at)');
+
+    // ── knowledge_base ─────────────────────────────────────────────────────────
+    // HR documents, policies, and guidelines for RAG retrieval.
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS knowledge_base (
+        id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        title       VARCHAR(255) NOT NULL,
+        category    VARCHAR(50) NOT NULL DEFAULT 'general',
+        content     TEXT NOT NULL,
+        tags        TEXT[],
+        is_active   BOOLEAN DEFAULT TRUE,
+        created_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+        created_at  TIMESTAMP DEFAULT NOW(),
+        updated_at  TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_knowledge_base_category ON knowledge_base(category)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_knowledge_base_active ON knowledge_base(is_active)');
+    try {
+      await db.query(`
+        CREATE INDEX IF NOT EXISTS idx_knowledge_base_search
+        ON knowledge_base USING GIN(to_tsvector('english', title || ' ' || COALESCE(content, '')))
+      `);
+    } catch (err) { /* GIN index may fail in some environments */ }
+
+    // ── Seed default knowledge base articles ───────────────────────────────────
+    const defaultKBArticles = [
+      {
+        title: 'Annual Leave Policy',
+        category: 'leave_policy',
+        content: `Employees are entitled to annual leave based on their employment contract. Standard allocation is as defined in the leave types configuration. Leave must be requested through the HRIS system and approved by the reporting manager. Unused leave may be carried forward based on company policy. During probation, leave accrual may be prorated. Emergency leave requests should be communicated to the manager as soon as possible.`,
+        tags: ['leave', 'annual', 'vacation', 'time-off'],
+      },
+      {
+        title: 'Attendance Policy',
+        category: 'attendance_policy',
+        content: `All employees must record their attendance daily via the HRIS check-in/check-out system or biometric device. Standard working hours are 9:00 AM to 6:00 PM with a 1-hour lunch break. Employees are expected to maintain a minimum of 8 working hours per day. Late arrivals exceeding 15 minutes will be flagged. Work from home (WFH) arrangements must be pre-approved by the manager. Three consecutive unexcused absences may result in disciplinary action.`,
+        tags: ['attendance', 'check-in', 'working-hours', 'wfh'],
+      },
+      {
+        title: 'Probation Period Guidelines',
+        category: 'onboarding',
+        content: `New employees undergo a probation period of 3 months (90 days) from the date of joining. During probation, performance is reviewed monthly. Probation may be extended by up to 3 months if performance criteria are not met. Upon successful completion, the employee is confirmed as a permanent member. During probation, notice period is typically 1 week. Leave entitlement during probation is prorated.`,
+        tags: ['probation', 'new-hire', 'onboarding', 'confirmation'],
+      },
+      {
+        title: 'Compensation & Benefits Overview',
+        category: 'compensation',
+        content: `Employee compensation includes basic salary plus applicable allowances (housing, transport, meal, medical, mobile). Salary reviews are conducted annually. Payroll is processed monthly. Benefits include health insurance, life insurance (based on group), and paid time off. Overtime is compensated as per company policy. Salary information is strictly confidential.`,
+        tags: ['salary', 'compensation', 'benefits', 'allowances', 'insurance'],
+      },
+      {
+        title: 'Code of Conduct',
+        category: 'conduct',
+        content: `All employees are expected to maintain professional behavior, respect diversity and inclusion, protect confidential information, avoid conflicts of interest, and comply with company policies. Harassment, discrimination, and unethical behavior are strictly prohibited. Violations should be reported through the ticketing system or to HR. Disciplinary actions may include warnings, suspension, or termination depending on severity.`,
+        tags: ['conduct', 'ethics', 'behavior', 'harassment', 'discipline'],
+      },
+      {
+        title: 'Performance Review Process',
+        category: 'general',
+        content: `Performance reviews are conducted on a regular basis. Employees are evaluated on productivity, knowledge, attitude, and discipline. Scores are recorded as percentages. Managers are responsible for conducting reviews for their direct reports. Performance data influences salary reviews, promotions, and development plans. Employees can view their performance history through the HRIS system.`,
+        tags: ['performance', 'review', 'evaluation', 'appraisal'],
+      },
+    ];
+    for (const article of defaultKBArticles) {
+      await db.query(
+        `INSERT INTO knowledge_base (title, category, content, tags)
+         SELECT $1, $2, $3, $4::text[]
+         WHERE NOT EXISTS (SELECT 1 FROM knowledge_base WHERE title = $1)`,
+        [article.title, article.category, article.content, article.tags]
+      );
+    }
+
+    console.log('Additive migrations completed (including ticketing system & Edge Bot).');
   } catch (err) {
     console.error('Additive migration error:', err.message);
   }

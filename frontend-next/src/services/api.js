@@ -186,6 +186,24 @@ export const ticketsAPI = {
   markNotificationsRead: (data) => api.post('/tickets/notifications/mark-read', data),
 };
 
+export const edgeBotAPI = {
+  // Chat
+  send: (data) => api.post('/chat', data),
+  // Sessions
+  sessions: () => api.get('/chat/sessions'),
+  getSession: (id) => api.get(`/chat/sessions/${id}`),
+  deleteSession: (id) => api.delete(`/chat/sessions/${id}`),
+};
+
+export const knowledgeBaseAPI = {
+  list: (params) => api.get('/knowledge-base', { params }),
+  categories: () => api.get('/knowledge-base/categories'),
+  get: (id) => api.get(`/knowledge-base/${id}`),
+  create: (data) => api.post('/knowledge-base', data),
+  update: (id, data) => api.put(`/knowledge-base/${id}`, data),
+  delete: (id) => api.delete(`/knowledge-base/${id}`),
+};
+
 export const devicesAPI = {
   list: () => api.get('/devices'),
   get: (id) => api.get(`/devices/${id}`),

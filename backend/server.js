@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const migrate = require('./migrate');
+const attendanceSyncScheduler = require('./services/attendanceSyncScheduler');
 
 const app = express();
 
@@ -51,6 +52,7 @@ app.use('/api/announcements', require('./routes/announcements'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/admin-data', require('./routes/admin-data'));
 app.use('/api/chat', require('./routes/chat'));
+app.use('/api/knowledge-base', require('./routes/knowledge-base'));
 app.use('/api/attendance', require('./routes/attendance'));
 app.use('/api/performance', require('./routes/performance'));
 app.use('/api/logs', require('./routes/logs'));
@@ -73,4 +75,20 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`HRIS Backend running on port ${PORT}`);
+
+  // Start ZKTeco attendance auto-sync scheduler
+  attendanceSyncScheduler.start();
+});
+
+// Graceful shutdown — stop scheduler and disconnect devices
+process.on('SIGTERM', () => {
+  attendanceSyncScheduler.stop();
+  const zkService = require('./services/zktecoService');
+  zkService.disconnectAll();
+});
+process.on('SIGINT', () => {
+  attendanceSyncScheduler.stop();
+  const zkService = require('./services/zktecoService');
+  zkService.disconnectAll();
+  process.exit(0);
 });

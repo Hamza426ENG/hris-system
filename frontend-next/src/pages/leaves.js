@@ -21,7 +21,7 @@ function LeavesContent() {
 
   // If redirected with ?status=pending, show all years so pending items are visible
   const qStatus = router.query.status || '';
-  const [filters, setFilters] = useState({ status: qStatus, year: qStatus ? '' : new Date().getFullYear() });
+  const [filters, setFilters] = useState({ status: qStatus, year: '' });
 
   // Sync if query params change (e.g. navigated from popup)
   useEffect(() => {

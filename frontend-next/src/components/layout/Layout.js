@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import StartupNotificationModal from '@/components/common/StartupNotificationModal';
+import EdgeBotWidget from '@/components/common/EdgeBotWidget';
 
 export default function Layout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -16,6 +17,7 @@ export default function Layout({ children }) {
         </main>
       </div>
       <StartupNotificationModal />
+      <EdgeBotWidget />
     </div>
   );
 }

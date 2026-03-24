@@ -97,24 +97,39 @@ async function testConnection(device) {
 
 /**
  * Get attendance logs from the device.
- * Returns array of { deviceUserId, recordTime, state, verified }.
+ * Returns array of { deviceUserId, punchTime, punchState, verified }.
  *
- * ZKLib returns logs as: { uid, id, state, timestamp }
- *   - uid:       internal record UID (sequential)
- *   - id:        the user ID on the device (badge / enrollment number)
- *   - state:     punch state (0=check-in, 1=check-out, etc.)
- *   - timestamp: JS Date string of the punch
+ * node-zklib getAttendances() returns objects with these fields:
+ *   - userSn:       internal serial number of the record
+ *   - deviceUserId: the user ID on the device (badge / enrollment number)
+ *   - recordTime:   ISO date string of the punch
+ *   - ip:           device IP
+ *
+ * Note: some device firmware returns { uid, id, timestamp, state } instead.
+ * We handle both formats and filter out junk records (empty userId or year 2000).
  */
 async function getAttendanceLogs(device) {
   const zk = await connect(device);
   try {
     const result = await zk.getAttendances();
-    const logs = (result?.data || []).map(log => ({
-      deviceUserId: String(log.id),
-      punchTime:    log.timestamp,
-      punchState:   log.state ?? null,
-      verified:     log.verified ?? null,
-    }));
+    const raw = result?.data || [];
+
+    const logs = raw
+      .map(log => ({
+        deviceUserId: String(log.deviceUserId ?? log.id ?? ''),
+        punchTime:    log.recordTime ?? log.timestamp ?? null,
+        punchState:   log.state ?? null,
+        verified:     log.verified ?? null,
+      }))
+      .filter(log => {
+        // Filter out junk: empty userId or year-2000 placeholder dates
+        if (!log.deviceUserId || log.deviceUserId.trim() === '') return false;
+        if (!log.punchTime) return false;
+        const d = new Date(log.punchTime);
+        if (isNaN(d.getTime()) || d.getFullYear() <= 2000) return false;
+        return true;
+      });
+
     return logs;
   } finally {
     // Don't disconnect — keep cached for subsequent calls
