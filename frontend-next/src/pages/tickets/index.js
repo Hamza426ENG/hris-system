@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/components/common/Toast';
 import { ticketsAPI, departmentsAPI } from '@/services/api';
 import {
   Plus, Search, LayoutGrid, List, AlertCircle, Clock,
@@ -114,6 +115,7 @@ const fmtTimeAgo = (d) => {
 export default function TicketsPage() {
   const router = useRouter();
   const { user, permissions } = useAuth();
+  const { toast } = useToast();
   const [view, setView] = useState('list');
   const [tickets, setTickets] = useState([]);
   const [stats, setStats] = useState(null);
@@ -188,9 +190,12 @@ export default function TicketsPage() {
       setForm({ title: '', description: '', department_id: '', category_id: '', priority: 'medium', assigned_to: '' });
       fetchTickets(1);
       ticketsAPI.stats().then(r => setStats(r.data)).catch(() => {});
+      toast.success('Ticket created successfully');
       router.push(`/tickets/${res.data.id}`);
     } catch (err) {
-      setFormError(err.response?.data?.error || 'Failed to create ticket');
+      const msg = err.response?.data?.error || 'Failed to create ticket';
+      setFormError(msg);
+      toast.error(msg);
     } finally { setCreating(false); }
   };
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/components/common/Toast';
 import { ticketsAPI, departmentsAPI } from '@/services/api';
 import {
   ArrowLeft, Clock, AlertCircle, CheckCircle2, XCircle, Pause,
@@ -109,6 +110,7 @@ export default function TicketDetailPage() {
   const router = useRouter();
   const { id } = router.query;
   const { user, permissions } = useAuth();
+  const { toast } = useToast();
 
   const [ticket, setTicket] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -156,8 +158,8 @@ export default function TicketDetailPage() {
 
   const updateField = async (field, value) => {
     setUpdating(true);
-    try { await ticketsAPI.update(id, { [field]: value }); await fetchTicket(); }
-    catch (err) { alert(err.response?.data?.error || 'Update failed'); }
+    try { await ticketsAPI.update(id, { [field]: value }); await fetchTicket(); toast.success('Updated successfully'); }
+    catch (err) { toast.error(err.response?.data?.error || 'Update failed'); }
     finally { setUpdating(false); }
   };
 
@@ -168,22 +170,23 @@ export default function TicketDetailPage() {
     try {
       await ticketsAPI.addComment(id, { comment_text: commentText, is_internal: isInternal });
       setCommentText(''); setIsInternal(false); await fetchTicket();
-    } catch (err) { alert(err.response?.data?.error || 'Failed'); }
+      toast.success('Comment added');
+    } catch (err) { toast.error(err.response?.data?.error || 'Failed to add comment'); }
     finally { setSubmittingComment(false); }
   };
 
   const deleteComment = async (cId) => {
     if (!confirm('Delete this comment?')) return;
-    try { await ticketsAPI.deleteComment(id, cId); await fetchTicket(); } catch {}
+    try { await ticketsAPI.deleteComment(id, cId); await fetchTicket(); toast.success('Comment deleted'); } catch { toast.error('Failed to delete comment'); }
   };
 
   const uploadFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) return alert('Max 5MB');
+    if (file.size > 5 * 1024 * 1024) return toast.error('File size must be under 5MB');
     setUploading(true);
-    try { const fd = new FormData(); fd.append('file', file); await ticketsAPI.uploadAttachment(id, fd); await fetchTicket(); }
-    catch (err) { alert(err.response?.data?.error || 'Upload failed'); }
+    try { const fd = new FormData(); fd.append('file', file); await ticketsAPI.uploadAttachment(id, fd); await fetchTicket(); toast.success('File attached'); }
+    catch (err) { toast.error(err.response?.data?.error || 'Upload failed'); }
     finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
   };
 
@@ -192,12 +195,12 @@ export default function TicketDetailPage() {
       const res = await ticketsAPI.downloadAttachment(id, att.id);
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement('a'); a.href = url; a.download = att.file_name; a.click(); window.URL.revokeObjectURL(url);
-    } catch {}
+    } catch { toast.error('Download failed'); }
   };
 
   const deleteAttachment = async (aId) => {
     if (!confirm('Delete?')) return;
-    try { await ticketsAPI.deleteAttachment(id, aId); await fetchTicket(); } catch {}
+    try { await ticketsAPI.deleteAttachment(id, aId); await fetchTicket(); toast.success('Attachment deleted'); } catch { toast.error('Failed to delete'); }
   };
 
   const handleAction = async (action) => {
@@ -208,7 +211,8 @@ export default function TicketDetailPage() {
       else if (action === 'reopen') await ticketsAPI.reopen(id, { reason: actionNotes });
       setShowResolve(false); setShowClose(false); setShowReopen(false); setActionNotes('');
       await fetchTicket();
-    } catch (err) { alert(err.response?.data?.error || 'Failed'); }
+      toast.success(action === 'resolve' ? 'Issue resolved' : action === 'close' ? 'Issue closed' : 'Issue reopened');
+    } catch (err) { toast.error(err.response?.data?.error || 'Action failed'); }
     finally { setActionLoading(false); }
   };
 

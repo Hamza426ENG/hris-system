@@ -5,17 +5,23 @@ const { authenticate } = require('../middleware/auth');
 const router = express.Router();
 router.use(authenticate);
 
-// GET /api/organogram - full org tree
+// Only super_admin and hr_admin see the full company-wide tree.
+// Everyone else sees their own subtree (rooted at their own employee record).
+const FULL_ACCESS_ROLES = ['super_admin', 'hr_admin'];
+
 router.get('/', async (req, res) => {
   try {
     const result = await db.query(`
       SELECT
         e.id, e.employee_id, e.first_name, e.last_name, e.manager_id,
         e.avatar_url, e.status, e.hire_date,
-        p.title as position_title, p.level as position_level,
-        d.name as department_name, d.id as department_id, d.code as department_code
+        p.title  AS position_title,
+        p.level  AS position_level,
+        d.name   AS department_name,
+        d.id     AS department_id,
+        d.code   AS department_code
       FROM employees e
-      LEFT JOIN positions p ON p.id = e.position_id
+      LEFT JOIN positions   p ON p.id = e.position_id
       LEFT JOIN departments d ON d.id = e.department_id
       WHERE e.status IN ('active', 'probation')
       ORDER BY p.level DESC NULLS LAST, e.first_name
@@ -23,47 +29,45 @@ router.get('/', async (req, res) => {
 
     const employees = result.rows;
 
-    // Build tree
-    const buildTree = (employees, managerId = null) => {
-      return employees
+    const buildTree = (employees, managerId = null) =>
+      employees
         .filter(e => e.manager_id === managerId)
-        .map(e => ({
-          ...e,
-          name: `${e.first_name} ${e.last_name}`,
-          children: buildTree(employees, e.id),
-        }));
-    };
+        .map(e => ({ ...e, name: `${e.first_name} ${e.last_name}`, children: buildTree(employees, e.id) }));
 
     const tree = buildTree(employees);
 
-    const role = req.user.role;
-    if (role === 'team_lead' || role === 'employee') {
-      const findSubtree = (nodes, employeeId) => {
+    const payload = {
+      all: employees,
+      current_employee_id: req.user.employee_id,
+    };
+
+    if (!FULL_ACCESS_ROLES.includes(req.user.role)) {
+      const findSubtree = (nodes, empId) => {
         for (const node of nodes) {
-          if (node.id === employeeId) return node;
-          const found = findSubtree(node.children || [], employeeId);
+          if (node.id === empId) return node;
+          const found = findSubtree(node.children || [], empId);
           if (found) return found;
         }
         return null;
       };
-      const subtreeNode = findSubtree(tree, req.user.employee_id);
-      return res.json({ tree: subtreeNode ? [subtreeNode] : [], all: employees });
+      const subtree = findSubtree(tree, req.user.employee_id);
+      return res.json({ ...payload, tree: subtree ? [subtree] : [], is_partial: true });
     }
 
-    res.json({ tree, all: employees });
+    res.json({ ...payload, tree, is_partial: false });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// GET /api/organogram/department/:dept_id
+// Department sub-tree (admin use)
 router.get('/department/:dept_id', async (req, res) => {
   try {
     const result = await db.query(`
       SELECT e.id, e.employee_id, e.first_name, e.last_name, e.manager_id, e.avatar_url,
-        p.title as position_title, d.name as department_name
+        p.title AS position_title, d.name AS department_name
       FROM employees e
-      LEFT JOIN positions p ON p.id = e.position_id
+      LEFT JOIN positions   p ON p.id = e.position_id
       LEFT JOIN departments d ON d.id = e.department_id
       WHERE e.department_id = $1 AND e.status IN ('active', 'probation')
       ORDER BY p.level DESC NULLS LAST
