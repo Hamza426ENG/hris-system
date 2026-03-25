@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { announcementsAPI } from '@/services/api';
+import ConfirmModal from '@/components/common/ConfirmModal';
 import { useAuth } from '@/context/AuthContext';
 import {
   Megaphone, Plus, Trash2, AlertCircle, AlertTriangle, Info,
@@ -311,6 +312,8 @@ function AnnouncementsContent() {
   const [search, setSearch]       = useState('');
   const [filterPriority, setFP]   = useState('all');
   const [modal, setModal]         = useState(null); // null | 'create' | item object (edit)
+  const [confirm, setConfirm]     = useState(null);
+  const [confirming, setConfirming] = useState(false);
 
   const isAdmin   = ADMIN_ROLES.includes(user?.role);
   const canManage = isAdmin;
@@ -372,12 +375,21 @@ function AnnouncementsContent() {
     });
   };
 
-  const handleArchive = async (item) => {
-    if (!confirm(`Archive "${item.title}"? It will no longer be visible to employees.`)) return;
-    try {
-      await announcementsAPI.delete(item.id);
-      setItems(prev => prev.map(a => a.id === item.id ? { ...a, is_active: false, computed_status: 'archived' } : a));
-    } catch { /* non-fatal */ }
+  const handleArchive = (item) => {
+    setConfirm({
+      title: 'Archive Announcement',
+      message: `Archive "${item.title}"? It will no longer be visible to employees.`,
+      confirmLabel: 'Archive',
+      variant: 'warning',
+      onConfirm: async () => {
+        setConfirming(true);
+        try {
+          await announcementsAPI.delete(item.id);
+          setItems(prev => prev.map(a => a.id === item.id ? { ...a, is_active: false, computed_status: 'archived' } : a));
+        } catch { /* non-fatal */ }
+        finally { setConfirming(false); setConfirm(null); }
+      },
+    });
   };
 
   const handleRestore = async (item) => {
@@ -520,15 +532,17 @@ function AnnouncementsContent() {
             <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-oe-muted pointer-events-none" />
           </div>
 
-          {/* Refresh */}
-          <button
-            onClick={load}
-            disabled={loading}
-            className="p-1.5 rounded-lg border border-slate-200 dark:border-white/10 text-oe-muted hover:text-oe-primary hover:border-oe-primary/30 transition-colors flex-shrink-0"
-            title="Refresh"
-          >
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-          </button>
+          {/* Refresh — super_admin only */}
+          {user?.role === 'super_admin' && (
+            <button
+              onClick={load}
+              disabled={loading}
+              className="p-1.5 rounded-lg border border-slate-200 dark:border-white/10 text-oe-muted hover:text-oe-primary hover:border-oe-primary/30 transition-colors flex-shrink-0"
+              title="Refresh"
+            >
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -582,6 +596,17 @@ function AnnouncementsContent() {
           onClose={() => setModal(null)}
         />
       )}
+
+      <ConfirmModal
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        confirmLabel={confirm?.confirmLabel}
+        variant={confirm?.variant}
+        loading={confirming}
+        onConfirm={confirm?.onConfirm}
+        onCancel={() => setConfirm(null)}
+      />
     </div>
   );
 }

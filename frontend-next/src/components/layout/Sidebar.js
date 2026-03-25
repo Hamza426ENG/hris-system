@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import {
   LayoutDashboard, Users, GitBranch, Calendar, DollarSign,
   BarChart3, Settings, ChevronLeft, Wallet, ShieldCheck, X, Megaphone,
-  Fingerprint, TicketCheck, Bot
+  Fingerprint, TicketCheck, Bot, Monitor, ClipboardList, LogOut
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useConfig } from '@/context/ConfigContext';
@@ -23,12 +23,15 @@ const NAV_GROUPS = [
   {
     label: 'People',
     items: [
-      { to: '/employees', icon: Users, label: 'Employees', roles: ALL_ROLES_KEY },
+      { to: '/employees', icon: Users, label: 'Employees', minLevel: 'hr_admin' },
+      { to: '/profile-requests', icon: ClipboardList, label: 'Profile Requests', minLevel: 'hr_admin' },
+      { to: '/resignations', icon: LogOut, label: 'Resignations', minLevel: 'hr_admin' },
       { to: '/organogram', icon: GitBranch, label: 'Organogram', roles: ALL_ROLES_KEY },
       { to: '/attendance', icon: Fingerprint, label: 'Attendance', roles: ALL_ROLES_KEY },
       { to: '/leaves', icon: Calendar, label: 'Leave Management', roles: ALL_ROLES_KEY },
       { to: '/tickets', icon: TicketCheck, label: 'Tickets', roles: ALL_ROLES_KEY },
       { to: '/edge-bot', icon: Bot, label: 'Edge Bot', roles: ALL_ROLES_KEY },
+      { to: '/it-inventory', icon: Monitor, label: 'IT Inventory', minLevel: 'hr_admin' },
     ],
   },
   {
@@ -43,7 +46,7 @@ const NAV_GROUPS = [
     items: [
       { to: '/reports', icon: BarChart3, label: 'Reports', minLevel: 'manager' },
       { to: '/settings', icon: Settings, label: 'Settings', minLevel: 'hr_admin' },
-      { to: '/admin', icon: ShieldCheck, label: 'Admin Panel', minLevel: 'super_admin' },
+      { to: '/admin', icon: ShieldCheck, label: 'Admin Panel', minLevel: 'hr_admin' },
     ],
   },
 ];
@@ -152,14 +155,30 @@ export default function Sidebar({ open, setOpen }) {
       {/* User info block */}
       {(open || isDrawer) && (
         <div className="px-3 py-3 border-t border-slate-200 dark:border-white/8">
-          <div className="flex items-center gap-3 px-2 py-2.5">
-            <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-white/10 flex items-center justify-center text-[11px] font-semibold text-slate-600 dark:text-white/80 flex-shrink-0 ring-1 ring-slate-300 dark:ring-white/15">
-              {initials}
+          {user?.employeeId ? (
+            <Link
+              href={`/employees/${user.employeeId}`}
+              onClick={isDrawer ? () => setOpen(false) : undefined}
+              className="flex items-center gap-3 px-2 py-2.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/8 transition-colors group"
+            >
+              <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-white/10 flex items-center justify-center text-[11px] font-semibold text-slate-600 dark:text-white/80 flex-shrink-0 ring-1 ring-slate-300 dark:ring-white/15">
+                {initials}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium text-slate-700 dark:text-white/80 truncate leading-tight">{fullName || user?.email}</div>
+                <div className="text-[10px] text-slate-400 dark:text-white/40 group-hover:text-oe-primary transition-colors">My Profile →</div>
+              </div>
+            </Link>
+          ) : (
+            <div className="flex items-center gap-3 px-2 py-2.5">
+              <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-white/10 flex items-center justify-center text-[11px] font-semibold text-slate-600 dark:text-white/80 flex-shrink-0 ring-1 ring-slate-300 dark:ring-white/15">
+                {initials}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium text-slate-700 dark:text-white/80 truncate leading-tight">{fullName || user?.email}</div>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-slate-700 dark:text-white/80 truncate leading-tight">{fullName || user?.email}</div>
-            </div>
-          </div>
+          )}
         </div>
       )}
 

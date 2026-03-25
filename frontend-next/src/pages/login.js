@@ -53,8 +53,8 @@ function LoginContent() {
           </div>
           
           <div>
-            <h1 className="text-4xl font-bold text-white mb-3">Welcome to EDGE</h1>
-            <p className="text-violet-200 text-lg">HRIS</p>
+            <h1 className="text-4xl font-bold text-white mb-3">Welcome to Edge Verse</h1>
+
           </div>
         </div>
       </div>

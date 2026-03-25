@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { dashboardAPI, announcementsAPI, ticketsAPI } from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
-import { Users, Calendar, Clock, Building2, TrendingUp, DollarSign, Gift, ChevronRight, Megaphone, AlertCircle, AlertTriangle, Info, TicketCheck, ChevronsUp, ChevronUp, Minus, ChevronDown } from 'lucide-react';
+import { Users, Calendar, Clock, Building2, TrendingUp, DollarSign, Gift, ChevronRight, Megaphone, AlertCircle, AlertTriangle, Info, TicketCheck, ChevronsUp, ChevronUp, Minus, ChevronDown, RefreshCw, Fingerprint, CheckCircle2, ClipboardList } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import PrivateRoute from '@/components/auth/PrivateRoute';
 import Layout from '@/components/layout/Layout';
@@ -224,7 +224,8 @@ function DashboardContent() {
   const router = useRouter();
   const { user } = useAuth();
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
+    setLoading(true);
     dashboardAPI.stats().then(res => setData(res.data)).catch(console.error).finally(() => setLoading(false));
     announcementsAPI.list().then(res => setAnnouncements(res.data || [])).catch(() => {});
     if (user?.id) {
@@ -236,6 +237,8 @@ function DashboardContent() {
         .catch(() => {});
     }
   }, [user?.id]);
+
+  useEffect(() => { loadData(); }, [loadData]);
 
   // Real-time announcement updates via SSE
   useEffect(() => {
@@ -263,15 +266,91 @@ function DashboardContent() {
     </div>
   );
 
-  const { stats, upcomingBirthdays, recentLeaves, recentHires, leaveSummary, deptHeadcount } = data || {};
+  const isHR = ['super_admin', 'hr_admin'].includes(user?.role);
+  const isAdmin = data?.view === 'admin';
 
   const statusBadge = (s) => {
     const map = { pending: 'badge-pending', approved: 'badge-approved', rejected: 'badge-rejected', cancelled: 'badge-inactive' };
     return <span className={map[s] || 'badge-inactive'}>{s}</span>;
   };
 
+  // ── Personal dashboard for non-HR users ───────────────────────────
+  if (!isAdmin) {
+    const { stats: ps, recentLeaves: myLeaves } = data || {};
+    return (
+      <div className="space-y-6">
+        {/* Single profile card + Announcements */}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          <div className="xl:col-span-2">
+            <ProfileDive stats={ps} recentLeaves={myLeaves} myTicketCount={myTickets.length} />
+          </div>
+          <div className="xl:col-span-1 self-start h-80">
+            <AnnouncementTicker items={announcements} onViewAll={() => router.push('/announcements')} />
+          </div>
+        </div>
+
+        {/* My Assigned Tickets */}
+        {myTickets.length > 0 && (
+          <div className="card">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <TicketCheck size={16} className="text-oe-primary" />
+                <h3 className="font-semibold text-oe-text">My Assigned Tickets</h3>
+                <span className="text-[10px] font-bold bg-oe-primary/10 text-oe-primary px-1.5 py-0.5 rounded-full">{myTickets.length}</span>
+              </div>
+              <button onClick={() => router.push('/tickets')} className="text-xs text-oe-primary hover:underline flex items-center gap-1">
+                View All <ChevronRight size={12} />
+              </button>
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-0 px-2 py-1.5 text-[10px] font-semibold text-slate-400 dark:text-white/35 uppercase tracking-wider">
+                <div className="w-5" />
+                <div className="w-20">Key</div>
+                <div className="flex-1">Summary</div>
+                <div className="w-20 text-center hidden sm:block">Status</div>
+                <div className="w-20 text-right hidden sm:block">Updated</div>
+              </div>
+              {myTickets.slice(0, 6).map(t => {
+                const pCfg = PRIORITY_ICON_MAP[t.priority] || PRIORITY_ICON_MAP.medium;
+                const PIcon = pCfg.icon;
+                const sBadge = STATUS_BADGE[t.status] || STATUS_BADGE.open;
+                const statusLabel = t.status === 'in_progress' ? 'IN PROGRESS' : t.status === 'on_hold' ? 'ON HOLD' : 'OPEN';
+                return (
+                  <div key={t.id} onClick={() => router.push(`/tickets/${t.id}`)} className="flex items-center gap-0 px-2 py-2 rounded-lg hover:bg-blue-50/50 dark:hover:bg-white/[0.03] cursor-pointer transition-colors group border-b border-slate-100 dark:border-white/[0.04] last:border-0">
+                    <div className="w-5 flex-shrink-0"><PIcon size={13} className={pCfg.cls} strokeWidth={2.5} /></div>
+                    <div className="w-20 flex-shrink-0"><span className="text-[11px] font-medium text-oe-primary group-hover:underline">{t.ticket_number}</span></div>
+                    <div className="flex-1 min-w-0 pr-2"><span className="text-sm text-slate-800 dark:text-white/90 truncate block">{t.title}</span></div>
+                    <div className="w-20 hidden sm:flex justify-center flex-shrink-0"><span className={`inline-flex items-center rounded-sm px-1.5 py-px text-[9px] font-bold uppercase tracking-wider ${sBadge}`}>{statusLabel}</span></div>
+                    <div className="w-20 hidden sm:block flex-shrink-0 text-right"><span className="text-[10px] text-slate-400 dark:text-white/30">{timeAgo(t.updated_at || t.created_at)}</span></div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Admin / HR dashboard ──────────────────────────────────────────
+  const { stats, upcomingBirthdays, recentLeaves, recentHires, leaveSummary, deptHeadcount } = data || {};
+
   return (
     <div className="space-y-6">
+      {/* Refresh button — super_admin only */}
+      {user?.role === 'super_admin' && (
+        <div className="flex justify-end">
+          <button
+            onClick={loadData}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-oe-border text-oe-muted hover:text-oe-primary hover:border-oe-primary/30 transition-colors"
+            title="Refresh dashboard data"
+          >
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+        </div>
+      )}
+
       {/* Top section: Profile | Stats | Announcements */}
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
 
@@ -401,7 +480,7 @@ function DashboardContent() {
         </div>
       </div>
 
-      
+
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Leaves */}

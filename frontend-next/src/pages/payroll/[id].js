@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { payrollAPI } from '@/services/api';
 import useGoBack from '@/hooks/useGoBack';
+import ConfirmModal from '@/components/common/ConfirmModal';
 import { ArrowLeft, Play, CheckCircle, XCircle, Download } from 'lucide-react';
 import PrivateRoute from '@/components/auth/PrivateRoute';
 import Layout from '@/components/layout/Layout';
@@ -16,6 +17,8 @@ function PayrollDetailContent() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [confirm, setConfirm] = useState(null);
+  const [confirming, setConfirming] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -36,16 +39,32 @@ function PayrollDetailContent() {
     finally { setGenerating(false); }
   };
 
-  const handleComplete = async () => {
-    if (!window.confirm('Mark payroll as completed? This cannot be undone.')) return;
-    await payrollAPI.complete(id);
-    load();
+  const handleComplete = () => {
+    setConfirm({
+      title: 'Complete Payroll Run',
+      message: 'Mark this payroll as completed? This cannot be undone.',
+      confirmLabel: 'Mark Complete',
+      variant: 'success',
+      onConfirm: async () => {
+        setConfirming(true);
+        try { await payrollAPI.complete(id); load(); }
+        finally { setConfirming(false); setConfirm(null); }
+      },
+    });
   };
 
-  const handleCancel = async () => {
-    if (!window.confirm('Cancel this payroll run?')) return;
-    await payrollAPI.cancel(id);
-    load();
+  const handleCancel = () => {
+    setConfirm({
+      title: 'Cancel Payroll Run',
+      message: 'Are you sure you want to cancel this payroll run? This action cannot be undone.',
+      confirmLabel: 'Cancel Run',
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirming(true);
+        try { await payrollAPI.cancel(id); load(); }
+        finally { setConfirming(false); setConfirm(null); }
+      },
+    });
   };
 
   const printPayroll = () => {
@@ -170,6 +189,17 @@ function PayrollDetailContent() {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        confirmLabel={confirm?.confirmLabel}
+        variant={confirm?.variant}
+        loading={confirming}
+        onConfirm={confirm?.onConfirm}
+        onCancel={() => setConfirm(null)}
+      />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const migrate = require('./migrate');
 const attendanceSyncScheduler = require('./services/attendanceSyncScheduler');
 
@@ -58,9 +59,15 @@ app.use('/api/performance', require('./routes/performance'));
 app.use('/api/logs', require('./routes/logs'));
 app.use('/api/devices', require('./routes/devices'));
 app.use('/api/tickets', require('./routes/tickets'));
+app.use('/api/it-inventory', require('./routes/it-inventory'));
+app.use('/api/profile-requests', require('./routes/profile-requests'));
+app.use('/api/documents',        require('./routes/documents'));
+app.use('/api/resignations',     require('./routes/resignations'));
+
+// Serve document uploads (authenticated)
+app.use('/uploads/documents', require('./middleware/auth').authenticate, require('express').static(path.join(__dirname, 'uploads', 'documents')));
 
 // Serve ticket attachment uploads
-const path = require('path');
 app.use('/uploads/tickets', require('./middleware/auth').authenticate, require('express').static(path.join(__dirname, 'uploads', 'tickets')));
 
 // 404

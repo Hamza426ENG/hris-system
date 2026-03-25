@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { departmentsAPI, positionsAPI, leavesAPI } from '@/services/api';
 import Modal from '@/components/common/Modal';
+import ConfirmModal from '@/components/common/ConfirmModal';
 import { Plus, Edit, Trash2, Building2, Briefcase, Calendar } from 'lucide-react';
 import PrivateRoute from '@/components/auth/PrivateRoute';
 import Layout from '@/components/layout/Layout';
@@ -20,6 +21,8 @@ function SettingsContent() {
   const [editItem, setEditItem] = useState(null);
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
+  const [confirm, setConfirm] = useState(null);
+  const [confirming, setConfirming] = useState(false);
 
   const loadAll = () => {
     departmentsAPI.list().then(r => setDepartments(r.data)).catch(console.error);
@@ -65,11 +68,21 @@ function SettingsContent() {
     finally { setSaving(false); }
   };
 
-  const handleDelete = async (type, id) => {
-    if (!window.confirm('Deactivate this item?')) return;
-    if (type === 'departments') await departmentsAPI.delete(id);
-    else if (type === 'positions') await positionsAPI.delete(id);
-    loadAll();
+  const handleDelete = (type, id, name) => {
+    setConfirm({
+      title: 'Deactivate Item',
+      message: `Are you sure you want to deactivate "${name}"?`,
+      confirmLabel: 'Deactivate',
+      variant: 'warning',
+      onConfirm: async () => {
+        setConfirming(true);
+        try {
+          if (type === 'departments') await departmentsAPI.delete(id);
+          else if (type === 'positions') await positionsAPI.delete(id);
+          loadAll();
+        } finally { setConfirming(false); setConfirm(null); }
+      },
+    });
   };
 
   const F = ({ label, name, type = 'text', required }) => (
@@ -106,7 +119,7 @@ function SettingsContent() {
                   </div>
                   <div className="flex gap-1 flex-shrink-0 ml-2">
                     <button onClick={() => openEdit(d)} data-tip="Edit department" className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"><Edit size={13} /></button>
-                    <button onClick={() => handleDelete('departments', d.id)} data-tip="Delete department" className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"><Trash2 size={13} /></button>
+                    <button onClick={() => handleDelete('departments', d.id, d.name)} data-tip="Delete department" className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"><Trash2 size={13} /></button>
                   </div>
                 </div>
                 <div className="text-xs text-oe-muted">{d.description || 'No description'}</div>
@@ -145,7 +158,7 @@ function SettingsContent() {
                     <td className="table-cell">
                       <div className="flex gap-1">
                         <button onClick={() => openEdit(p)} data-tip="Edit position" className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-primary transition-colors"><Edit size={13} /></button>
-                        <button onClick={() => handleDelete('positions', p.id)} data-tip="Delete position" className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors"><Trash2 size={13} /></button>
+                        <button onClick={() => handleDelete('positions', p.id, p.title)} data-tip="Delete position" className="p-1.5 hover:bg-oe-surface rounded text-oe-muted hover:text-oe-danger transition-colors"><Trash2 size={13} /></button>
                       </div>
                     </td>
                   </tr>
@@ -267,6 +280,17 @@ function SettingsContent() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmModal
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        confirmLabel={confirm?.confirmLabel}
+        variant={confirm?.variant}
+        loading={confirming}
+        onConfirm={confirm?.onConfirm}
+        onCancel={() => setConfirm(null)}
+      />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { salaryAPI, employeesAPI } from '@/services/api';
 import Modal from '@/components/common/Modal';
-import { Plus, Search } from 'lucide-react';
+import { Plus, Search, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useConfig } from '@/context/ConfigContext';
 import PrivateRoute from '@/components/auth/PrivateRoute';
@@ -155,6 +155,11 @@ function SalaryContent() {
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-oe-muted" />
           <input className="input pl-9" placeholder="Search by name, ID, department..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
+        {user?.role === 'super_admin' && (
+          <button onClick={load} disabled={loading} className="btn-secondary justify-center sm:justify-start" title="Refresh data">
+            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+        )}
         <button onClick={() => setModal(true)} className="btn-primary justify-center sm:justify-start"><Plus size={15} /> Add Salary Structure</button>
       </div>
 

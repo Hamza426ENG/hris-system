@@ -188,15 +188,14 @@ async function runAdditiveMigrations() {
       'CREATE INDEX IF NOT EXISTS idx_performance_period ON performance_records(period_start, period_end)'
     );
 
-    // ── Add team_lead to user_role enum ────────────────────────────────────────
-    // The routes and frontend use 'team_lead' but it was missing from the DB enum.
-    // IF NOT EXISTS prevents errors on repeated runs (PostgreSQL 9.3+).
-    try {
-      await db.query(`ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'team_lead'`);
-    } catch (err) {
-      // Older PG versions without IF NOT EXISTS support — ignore if already exists
-      if (!err.message.includes('already exists')) {
-        console.warn('team_lead enum warning:', err.message);
+    // ── Ensure all user_role enum values exist ─────────────────────────────────
+    for (const val of ['team_lead', 'manager', 'hr_manager']) {
+      try {
+        await db.query(`ALTER TYPE user_role ADD VALUE IF NOT EXISTS '${val}'`);
+      } catch (err) {
+        if (!err.message.includes('already exists')) {
+          console.warn(`user_role enum warning (${val}):`, err.message);
+        }
       }
     }
 
@@ -204,7 +203,7 @@ async function runAdditiveMigrations() {
     // Seed data only created 2025 balances; new years need balances too.
     await db.query(`
       INSERT INTO leave_balances (employee_id, leave_type_id, year, allocated_days)
-      SELECT e.id, lt.id, EXTRACT(YEAR FROM CURRENT_DATE)::int, lt.days_allowed
+      SELECT e.id, lt.id, DATE_PART('year', CURRENT_DATE)::int, lt.days_allowed
       FROM employees e
       CROSS JOIN leave_types lt
       WHERE lt.is_active = TRUE
@@ -614,9 +613,374 @@ async function runAdditiveMigrations() {
       );
     }
 
-    console.log('Additive migrations completed (including ticketing system & Edge Bot).');
+    // ══════════════════════════════════════════════════════════════════════════
+    // ── IT INVENTORY MANAGEMENT MODULE ─────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // ── asset_status enum ──────────────────────────────────────────────────────
+    try {
+      await db.query(`
+        DO $$ BEGIN
+          CREATE TYPE asset_status AS ENUM ('available', 'assigned', 'in_repair', 'reserved', 'retired', 'lost');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+      `);
+    } catch (err) { /* already exists */ }
+
+    // ── asset_condition enum ───────────────────────────────────────────────────
+    try {
+      await db.query(`
+        DO $$ BEGIN
+          CREATE TYPE asset_condition AS ENUM ('new', 'good', 'fair', 'poor');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+      `);
+    } catch (err) { /* already exists */ }
+
+    // ── asset_category enum ────────────────────────────────────────────────────
+    try {
+      await db.query(`
+        DO $$ BEGIN
+          CREATE TYPE asset_category AS ENUM (
+            'laptop', 'desktop', 'monitor', 'mobile_phone', 'tablet',
+            'keyboard', 'mouse', 'headset', 'docking_station',
+            'access_card', 'networking_device', 'printer', 'other'
+          );
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+      `);
+    } catch (err) { /* already exists */ }
+
+    // ── maintenance_type enum ──────────────────────────────────────────────────
+    try {
+      await db.query(`
+        DO $$ BEGIN
+          CREATE TYPE maintenance_type AS ENUM ('repair', 'upgrade', 'inspection', 'cleaning');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+      `);
+    } catch (err) { /* already exists */ }
+
+    // ── repair_status enum ─────────────────────────────────────────────────────
+    try {
+      await db.query(`
+        DO $$ BEGIN
+          CREATE TYPE repair_status AS ENUM ('pending', 'in_progress', 'completed', 'cancelled');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+      `);
+    } catch (err) { /* already exists */ }
+
+    // ── Sequence for asset IDs ─────────────────────────────────────────────────
+    await db.query('CREATE SEQUENCE IF NOT EXISTS asset_id_seq START 1');
+
+    // ── it_assets ──────────────────────────────────────────────────────────────
+    // Central registry of all IT assets in the organization.
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS it_assets (
+        id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        asset_id          VARCHAR(20) UNIQUE NOT NULL,
+        name              VARCHAR(255) NOT NULL,
+        category          asset_category NOT NULL DEFAULT 'other',
+        brand             VARCHAR(100),
+        model             VARCHAR(100),
+        serial_number     VARCHAR(100),
+        purchase_date     DATE,
+        purchase_cost     DECIMAL(12,2),
+        vendor_name       VARCHAR(200),
+        warranty_expiry   DATE,
+        status            asset_status NOT NULL DEFAULT 'available',
+        condition         asset_condition NOT NULL DEFAULT 'new',
+        location          VARCHAR(255),
+        department_id     UUID REFERENCES departments(id) ON DELETE SET NULL,
+        assigned_to       UUID REFERENCES employees(id) ON DELETE SET NULL,
+        assigned_date     DATE,
+        expected_return   DATE,
+        notes             TEXT,
+        created_by        UUID REFERENCES users(id) ON DELETE SET NULL,
+        created_at        TIMESTAMP DEFAULT NOW(),
+        updated_at        TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_it_assets_status      ON it_assets(status)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_it_assets_category    ON it_assets(category)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_it_assets_assigned    ON it_assets(assigned_to)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_it_assets_department  ON it_assets(department_id)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_it_assets_warranty    ON it_assets(warranty_expiry)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_it_assets_serial      ON it_assets(serial_number)');
+
+    // ── it_assignment_history ──────────────────────────────────────────────────
+    // Immutable log of every assignment and return for chain-of-custody tracking.
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS it_assignment_history (
+        id                 UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        asset_id           UUID NOT NULL REFERENCES it_assets(id) ON DELETE CASCADE,
+        employee_id        UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        action             VARCHAR(20) NOT NULL,
+        assigned_date      DATE,
+        returned_date      DATE,
+        condition_on_return asset_condition,
+        performed_by       UUID REFERENCES users(id) ON DELETE SET NULL,
+        notes              TEXT,
+        created_at         TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_it_assign_hist_asset    ON it_assignment_history(asset_id)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_it_assign_hist_employee ON it_assignment_history(employee_id)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_it_assign_hist_date     ON it_assignment_history(created_at DESC)');
+
+    // ── it_maintenance_requests ────────────────────────────────────────────────
+    // Tracks every repair, upgrade, inspection, or cleaning job for an asset.
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS it_maintenance_requests (
+        id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        asset_id          UUID NOT NULL REFERENCES it_assets(id) ON DELETE CASCADE,
+        reported_by       UUID REFERENCES users(id) ON DELETE SET NULL,
+        type              maintenance_type NOT NULL DEFAULT 'repair',
+        status            repair_status NOT NULL DEFAULT 'pending',
+        description       TEXT NOT NULL,
+        vendor_name       VARCHAR(200),
+        vendor_contact    VARCHAR(100),
+        vendor_reference  VARCHAR(100),
+        technician_name   VARCHAR(200),
+        repair_cost       DECIMAL(12,2),
+        started_at        TIMESTAMP,
+        completed_at      TIMESTAMP,
+        condition_after   asset_condition,
+        notes             TEXT,
+        created_at        TIMESTAMP DEFAULT NOW(),
+        updated_at        TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_it_maint_asset   ON it_maintenance_requests(asset_id)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_it_maint_status  ON it_maintenance_requests(status)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_it_maint_type    ON it_maintenance_requests(type)');
+
+    // ── it_asset_audit_log ─────────────────────────────────────────────────────
+    // Immutable, time-stamped record of every action on every IT asset.
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS it_asset_audit_log (
+        id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        asset_id        UUID REFERENCES it_assets(id) ON DELETE SET NULL,
+        action          VARCHAR(50) NOT NULL,
+        performed_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+        affected_employee UUID REFERENCES employees(id) ON DELETE SET NULL,
+        old_value       JSONB,
+        new_value       JSONB,
+        details         TEXT,
+        created_at      TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_it_audit_asset   ON it_asset_audit_log(asset_id)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_it_audit_action  ON it_asset_audit_log(action)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_it_audit_time    ON it_asset_audit_log(created_at DESC)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_it_audit_admin   ON it_asset_audit_log(performed_by)');
+
+    console.log('IT Inventory Management tables created/verified.');
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ── PROFILE CHANGE REQUESTS ──────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+    // Employees submit profile edits that HR must approve before they take effect.
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS profile_change_requests (
+        id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        employee_id     UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        requested_by    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        changes         JSONB NOT NULL,
+        status          VARCHAR(20) NOT NULL DEFAULT 'pending',
+        reviewed_by     UUID REFERENCES users(id) ON DELETE SET NULL,
+        review_notes    TEXT,
+        reviewed_at     TIMESTAMP,
+        created_at      TIMESTAMP DEFAULT NOW(),
+        updated_at      TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_pcr_employee ON profile_change_requests(employee_id)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_pcr_status   ON profile_change_requests(status)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_pcr_created  ON profile_change_requests(created_at DESC)');
+
+    console.log('Profile change requests table created/verified.');
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ── BANKING & INSURANCE FIELDS ────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+    const bankingCols = [
+      { sql: `ALTER TABLE employees ADD COLUMN IF NOT EXISTS bank_account_number VARCHAR(50)` },
+      { sql: `ALTER TABLE employees ADD COLUMN IF NOT EXISTS bank_name VARCHAR(100)` },
+      { sql: `ALTER TABLE employees ADD COLUMN IF NOT EXISTS iban VARCHAR(50)` },
+      { sql: `ALTER TABLE employees ADD COLUMN IF NOT EXISTS account_holder_name VARCHAR(200)` },
+      { sql: `ALTER TABLE employees ADD COLUMN IF NOT EXISTS insurance_card_number VARCHAR(50)` },
+    ];
+    for (const col of bankingCols) {
+      try { await db.query(col.sql); } catch { /* already exists */ }
+    }
+    console.log('Banking & insurance columns verified.');
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ── ATTENDANCE LATE/EARLY THRESHOLD SETTINGS ──────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key         VARCHAR(100) PRIMARY KEY,
+        value       TEXT NOT NULL,
+        description TEXT,
+        updated_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+        updated_at  TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    // Default: late threshold = 09:15, early_leave threshold = 17:45
+    await db.query(`
+      INSERT INTO app_settings (key, value, description) VALUES
+        ('attendance_late_threshold',        '09:15', 'Check-in time after which employee is marked late (HH:MM 24h)'),
+        ('attendance_early_leave_threshold', '17:45', 'Check-out time before which employee is marked early leave (HH:MM 24h)')
+      ON CONFLICT (key) DO NOTHING
+    `);
+
+    // Add late/early_leave to attendance_records status column (existing rows unaffected)
+    try {
+      await db.query(`ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS is_late BOOLEAN DEFAULT FALSE`);
+      await db.query(`ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS is_early_leave BOOLEAN DEFAULT FALSE`);
+    } catch { /* already exists */ }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ── DOCUMENTS MODULE ──────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+    try {
+      await db.query(`
+        DO $$ BEGIN
+          CREATE TYPE document_status AS ENUM ('pending', 'verified', 'expired', 'rejected');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+      `);
+    } catch { /* already exists */ }
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS employee_documents (
+        id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        employee_id     UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        document_type   VARCHAR(50) NOT NULL,
+        document_name   VARCHAR(255) NOT NULL,
+        file_path       TEXT NOT NULL,
+        file_size       BIGINT,
+        mime_type       VARCHAR(100),
+        status          document_status NOT NULL DEFAULT 'pending',
+        expiry_date     DATE,
+        comments        TEXT,
+        version         INT NOT NULL DEFAULT 1,
+        is_latest       BOOLEAN NOT NULL DEFAULT TRUE,
+        uploaded_by     UUID REFERENCES users(id) ON DELETE SET NULL,
+        verified_by     UUID REFERENCES users(id) ON DELETE SET NULL,
+        verified_at     TIMESTAMP,
+        created_at      TIMESTAMP DEFAULT NOW(),
+        updated_at      TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_docs_employee   ON employee_documents(employee_id)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_docs_type       ON employee_documents(document_type)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_docs_status     ON employee_documents(status)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_docs_latest     ON employee_documents(employee_id, is_latest)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_docs_expiry     ON employee_documents(expiry_date) WHERE expiry_date IS NOT NULL');
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ── RESIGNATION / OFFBOARDING MODULE ─────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+    try {
+      await db.query(`
+        DO $$ BEGIN
+          CREATE TYPE resignation_status AS ENUM ('pending', 'approved', 'rejected', 'completed', 'withdrawn');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+      `);
+    } catch { /* already exists */ }
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS resignations (
+        id                      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        employee_id             UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        resignation_date        DATE NOT NULL,
+        last_working_day        DATE,
+        notice_period_days      INT NOT NULL DEFAULT 30,
+        reason                  VARCHAR(100),
+        reason_details          TEXT,
+        status                  resignation_status NOT NULL DEFAULT 'pending',
+        final_settlement_amount DECIMAL(12,2),
+        exit_interview_scheduled BOOLEAN DEFAULT FALSE,
+        exit_interview_date     DATE,
+        exit_interview_notes    TEXT,
+        equipment_returned      BOOLEAN DEFAULT FALSE,
+        clearance_finance       BOOLEAN DEFAULT FALSE,
+        clearance_it            BOOLEAN DEFAULT FALSE,
+        clearance_hr            BOOLEAN DEFAULT FALSE,
+        clearance_operations    BOOLEAN DEFAULT FALSE,
+        clearance_admin         BOOLEAN DEFAULT FALSE,
+        approved_by             UUID REFERENCES users(id) ON DELETE SET NULL,
+        approved_at             TIMESTAMP,
+        rejection_reason        TEXT,
+        completed_at            TIMESTAMP,
+        created_by              UUID REFERENCES users(id) ON DELETE SET NULL,
+        created_at              TIMESTAMP DEFAULT NOW(),
+        updated_at              TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_resignations_employee ON resignations(employee_id)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_resignations_status   ON resignations(status)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_resignations_lwd      ON resignations(last_working_day)');
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ── SUPER ADMIN SEED & DUMMY USER CLEANUP ────────────────────────────────
+    // Runs once — only when the canonical super admin does not yet exist.
+    // All other user accounts (dummy / test) are removed; employee records are
+    // preserved but unlinked so they can be re-associated later.
+    // ══════════════════════════════════════════════════════════════════════════
+    await seedSuperAdmin();
+
+    console.log('Additive migrations completed (including ticketing system, Edge Bot & IT Inventory).');
   } catch (err) {
     console.error('Additive migration error:', err.message);
+  }
+}
+
+// ── Super Admin Seed ─────────────────────────────────────────────────────────
+// Creates the canonical super admin and purges orphan/dummy accounts.
+// Safe to call on every startup — does nothing if the super admin already exists.
+async function seedSuperAdmin() {
+  const SUPER_ADMIN_EMAIL = 'superadmin@onedge.co';
+  const SUPER_ADMIN_PASS  = 'Admin@123'; // Change after first login
+
+  try {
+    const exists = await db.query(
+      'SELECT id FROM users WHERE email = $1',
+      [SUPER_ADMIN_EMAIL]
+    );
+
+    if (exists.rows.length === 0) {
+      console.log('[seed] Super admin not found — cleaning dummy accounts and creating super admin...');
+
+      // 1. Unlink all employees from existing user accounts so employee data is preserved.
+      await db.query('UPDATE employees SET user_id = NULL WHERE user_id IS NOT NULL');
+
+      // 2. Remove all sessions (they reference soon-to-be-deleted users).
+      await db.query('DELETE FROM user_sessions');
+
+      // 3. Delete all existing user accounts (they are dummy / test accounts).
+      await db.query('DELETE FROM users');
+
+      // 4. Create the canonical super admin.
+      const bcrypt = require('bcryptjs');
+      const hash = await bcrypt.hash(SUPER_ADMIN_PASS, 12);
+      await db.query(
+        `INSERT INTO users (email, password_hash, role, is_active)
+         VALUES ($1, $2, 'super_admin', true)`,
+        [SUPER_ADMIN_EMAIL, hash]
+      );
+
+      console.log(`[seed] Super admin created: ${SUPER_ADMIN_EMAIL}`);
+      console.log(`[seed] Default password  : ${SUPER_ADMIN_PASS}  ← change after first login`);
+    }
+  } catch (err) {
+    console.error('[seed] Super admin seed error:', err.message);
   }
 }
 

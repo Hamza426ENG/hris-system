@@ -9,7 +9,7 @@ import {
   CheckCircle2, XCircle, Pause, ChevronLeft, ChevronRight, X,
   TicketCheck, Loader2, BarChart3, ChevronsUp, ChevronUp,
   Minus, ChevronDown, Bug, Lightbulb, Wrench, Key, CircleDot,
-  MessageSquare, Paperclip, SlidersHorizontal, User2,
+  MessageSquare, Paperclip, SlidersHorizontal, User2, RefreshCw,
 } from 'lucide-react';
 
 // ── Jira-style Priority Icons ────────────────────────────────────────────────
@@ -229,6 +229,11 @@ export default function TicketsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {permissions.isAdmin && (
+            <button onClick={() => fetchTickets(1)} disabled={loading} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/70 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors" title="Refresh data">
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+            </button>
+          )}
           {(permissions.isManager || permissions.isHR) && (
             <button onClick={() => router.push('/tickets/analytics')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/70 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
               <BarChart3 size={14} /> Insights

@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { payrollAPI } from '@/services/api';
 import Modal from '@/components/common/Modal';
-import { Plus, Eye, CheckCircle, XCircle, Wallet } from 'lucide-react';
+import ConfirmModal from '@/components/common/ConfirmModal';
+import { Plus, Eye, CheckCircle, XCircle, Wallet, RefreshCw } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 import PrivateRoute from '@/components/auth/PrivateRoute';
 import Layout from '@/components/layout/Layout';
 
@@ -11,11 +13,14 @@ const fmtCurrency = (n) => n ? new Intl.NumberFormat('en-US', { style: 'currency
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function PayrollContent() {
+  const { user } = useAuth();
   const [runs, setRuns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ period_start: '', period_end: '', pay_date: '', description: '' });
   const [saving, setSaving] = useState(false);
+  const [confirm, setConfirm] = useState(null);
+  const [confirming, setConfirming] = useState(false);
   const router = useRouter();
 
   const load = () => {
@@ -36,18 +41,34 @@ function PayrollContent() {
     finally { setSaving(false); }
   };
 
-  const handleComplete = async (id, e) => {
+  const handleComplete = (id, e) => {
     e.stopPropagation();
-    if (!window.confirm('Mark payroll as completed?')) return;
-    await payrollAPI.complete(id);
-    load();
+    setConfirm({
+      title: 'Complete Payroll Run',
+      message: 'Mark this payroll run as completed? This action cannot be undone.',
+      confirmLabel: 'Mark Complete',
+      variant: 'success',
+      onConfirm: async () => {
+        setConfirming(true);
+        try { await payrollAPI.complete(id); load(); }
+        finally { setConfirming(false); setConfirm(null); }
+      },
+    });
   };
 
-  const handleCancel = async (id, e) => {
+  const handleCancel = (id, e) => {
     e.stopPropagation();
-    if (!window.confirm('Cancel this payroll run?')) return;
-    await payrollAPI.cancel(id);
-    load();
+    setConfirm({
+      title: 'Cancel Payroll Run',
+      message: 'Are you sure you want to cancel this payroll run? This action cannot be undone.',
+      confirmLabel: 'Cancel Run',
+      variant: 'danger',
+      onConfirm: async () => {
+        setConfirming(true);
+        try { await payrollAPI.cancel(id); load(); }
+        finally { setConfirming(false); setConfirm(null); }
+      },
+    });
   };
 
   const statusBadge = (s) => {
@@ -82,6 +103,11 @@ function PayrollContent() {
 
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
         <div className="flex-1 hidden sm:block" />
+        {user?.role === 'super_admin' && (
+          <button onClick={load} disabled={loading} className="btn-secondary justify-center sm:justify-start" title="Refresh data">
+            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+        )}
         <button onClick={quickCreate} className="btn-secondary justify-center sm:justify-start"><Wallet size={15} /> Quick Create (This Month)</button>
         <button onClick={() => setModal(true)} className="btn-primary justify-center sm:justify-start"><Plus size={15} /> New Payroll Run</button>
       </div>
@@ -182,6 +208,17 @@ function PayrollContent() {
           </div>
         ))}
       </div>
+
+      <ConfirmModal
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        confirmLabel={confirm?.confirmLabel}
+        variant={confirm?.variant}
+        loading={confirming}
+        onConfirm={confirm?.onConfirm}
+        onCancel={() => setConfirm(null)}
+      />
 
       {/* Create Modal */}
       <Modal open={modal} onClose={() => setModal(false)} title="Create Payroll Run" size="sm">

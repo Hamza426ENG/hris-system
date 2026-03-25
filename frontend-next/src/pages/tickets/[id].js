@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthContext';
 import useGoBack from '@/hooks/useGoBack';
 import { useToast } from '@/components/common/Toast';
+import ConfirmModal from '@/components/common/ConfirmModal';
 import { ticketsAPI, departmentsAPI } from '@/services/api';
 import {
   ArrowLeft, Clock, AlertCircle, CheckCircle2, XCircle, Pause,
@@ -129,6 +130,8 @@ export default function TicketDetailPage() {
   const fileInputRef = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [confirm, setConfirm] = useState(null);
+  const [confirming, setConfirming] = useState(false);
 
   const [showResolve, setShowResolve] = useState(false);
   const [showClose, setShowClose] = useState(false);

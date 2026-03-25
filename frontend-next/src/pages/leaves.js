@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { leavesAPI, employeesAPI } from '@/services/api';
 import Modal from '@/components/common/Modal';
-import { Plus, Check, X, Calendar, Download } from 'lucide-react';
+import ConfirmModal from '@/components/common/ConfirmModal';
+import { Plus, Check, X, Calendar, Download, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useConfig } from '@/context/ConfigContext';
 import PrivateRoute from '@/components/auth/PrivateRoute';
@@ -37,6 +38,8 @@ function LeavesContent() {
   const [reviewComment, setReviewComment] = useState('');
   const [form, setForm] = useState({ employee_id: isHR ? '' : (user?.employeeId || ''), leave_type_id: '', start_date: '', end_date: '', reason: '', half_day: false });
   const [saving, setSaving] = useState(false);
+  const [confirm, setConfirm] = useState(null); // { action, label, message, variant, onConfirm }
+  const [confirming, setConfirming] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,9 +65,18 @@ function LeavesContent() {
     await leavesAPI.reject(selected.id, { review_comments: reviewComment });
     setModal(null); setSelected(null); setReviewComment(''); load();
   };
-  const handleCancel = async (id) => {
-    if (!window.confirm('Cancel this leave request?')) return;
-    await leavesAPI.cancel(id); load();
+  const handleCancel = (id) => {
+    setConfirm({
+      title: 'Cancel Leave Request',
+      message: 'Are you sure you want to cancel this leave request? This action cannot be undone.',
+      confirmLabel: 'Cancel Request',
+      variant: 'warning',
+      onConfirm: async () => {
+        setConfirming(true);
+        try { await leavesAPI.cancel(id); load(); }
+        finally { setConfirming(false); setConfirm(null); }
+      },
+    });
   };
 
   const handleSubmit = async () => {
@@ -129,6 +141,11 @@ function LeavesContent() {
             {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           <button onClick={exportCSV} className="btn-secondary flex-1 sm:flex-none justify-center"><Download size={15} /> Export</button>
+          {user?.role === 'super_admin' && (
+            <button onClick={load} disabled={loading} className="btn-secondary flex-1 sm:flex-none justify-center" title="Refresh data">
+              <RefreshCw size={15} className={loading ? 'animate-spin' : ''} /> Refresh
+            </button>
+          )}
         </div>
         <button onClick={() => setModal('request')} className="btn-primary sm:ml-auto justify-center"><Plus size={15} /> Request Leave</button>
       </div>
@@ -329,6 +346,17 @@ function LeavesContent() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmModal
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        confirmLabel={confirm?.confirmLabel}
+        variant={confirm?.variant}
+        loading={confirming}
+        onConfirm={confirm?.onConfirm}
+        onCancel={() => setConfirm(null)}
+      />
 
       {/* Review Modal */}
       <Modal open={modal === 'review'} onClose={() => { setModal(null); setSelected(null); setReviewComment(''); }} title="Review Leave Request" size="md">

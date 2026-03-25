@@ -20,8 +20,71 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const jwt = require('jsonwebtoken');
 const { authenticate, authorize } = require('../middleware/auth');
 const { logAction } = require('../utils/auditLogger');
+
+// ── SSE clients ───────────────────────────────────────────────────────────────
+// Each entry: { res, employeeId, role }
+const sseClients = new Set();
+
+/**
+ * Broadcast an attendance update to relevant SSE clients.
+ *   - HR/admin clients always receive the update.
+ *   - Employee clients only receive updates for their own employeeId.
+ */
+function emitAttendanceUpdate(employeeId, record) {
+  const payload = JSON.stringify({ employeeId, record });
+  for (const client of sseClients) {
+    if (client.role === 'super_admin' || client.role === 'hr_admin' ||
+        client.role === 'manager'    || client.role === 'team_lead'  ||
+        client.employeeId === employeeId) {
+      try { client.res.write(`data: ${payload}\n\n`); } catch { /* ignore */ }
+    }
+  }
+}
+
+/**
+ * GET /attendance/stream?token=<jwt>
+ * SSE endpoint — sends real-time attendance check-in/check-out events.
+ * Token passed as query param because EventSource cannot set headers.
+ */
+router.get('/stream', async (req, res) => {
+  const token = req.query.token;
+  if (!token) return res.status(401).end();
+
+  let clientInfo;
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const check = await db.query(
+      `SELECT u.id, u.role, e.id AS employee_id
+       FROM users u
+       LEFT JOIN employees e ON e.user_id = u.id
+       WHERE u.id = $1 AND u.is_active = TRUE`,
+      [decoded.userId]
+    );
+    if (!check.rows.length) return res.status(401).end();
+    const row = check.rows[0];
+    clientInfo = { role: row.role || 'employee', employeeId: row.employee_id || null };
+  } catch {
+    return res.status(401).end();
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+  res.write('data: connected\n\n');
+
+  const heartbeat = setInterval(() => {
+    try { res.write(': heartbeat\n\n'); } catch { clearInterval(heartbeat); }
+  }, 25000);
+
+  const client = { res, ...clientInfo };
+  sseClients.add(client);
+  req.on('close', () => { clearInterval(heartbeat); sseClients.delete(client); });
+});
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -47,8 +110,68 @@ function isValidTime(str) {
   return /^\d{2}:\d{2}(:\d{2})?$/.test(str);
 }
 
+/**
+ * Fetch late/early thresholds from app_settings.
+ * Returns { lateHH, lateMM, earlyHH, earlyMM }
+ */
+async function getAttendanceThresholds() {
+  try {
+    const res = await db.query(
+      `SELECT key, value FROM app_settings WHERE key IN ('attendance_late_threshold', 'attendance_early_leave_threshold')`
+    );
+    const map = {};
+    for (const row of res.rows) map[row.key] = row.value;
+    const [lateHH, lateMM]   = (map['attendance_late_threshold']        || '09:15').split(':').map(Number);
+    const [earlyHH, earlyMM] = (map['attendance_early_leave_threshold'] || '17:45').split(':').map(Number);
+    return { lateHH, lateMM, earlyHH, earlyMM };
+  } catch {
+    return { lateHH: 9, lateMM: 15, earlyHH: 17, earlyMM: 45 };
+  }
+}
+
 // All routes require authentication
 router.use(authenticate);
+
+/**
+ * GET /attendance/live-today
+ * Returns today's attendance records.
+ *   - HR / admin / leads: all employees with check-in today (or absent)
+ *   - Employee: own record only
+ */
+router.get('/live-today', async (req, res) => {
+  try {
+    const { role, employee_id } = req.user;
+    const isLead_ = isLead(role);
+
+    if (isLead_) {
+      const result = await db.query(
+        `SELECT
+           ar.id, ar.employee_id, ar.date, ar.check_in, ar.check_out, ar.work_hours, ar.status, ar.source,
+           e.first_name, e.last_name, e.employee_id AS emp_code, e.avatar_url,
+           d.name AS department_name
+         FROM attendance_records ar
+         JOIN employees e ON e.id = ar.employee_id
+         LEFT JOIN departments d ON d.id = e.department_id
+         WHERE ar.date = CURRENT_DATE
+         ORDER BY ar.check_in ASC NULLS LAST, e.first_name ASC`
+      );
+      return res.json({ records: result.rows, date: new Date().toISOString().split('T')[0] });
+    }
+
+    // Self only
+    if (!employee_id) return res.json({ record: null, date: new Date().toISOString().split('T')[0] });
+    const result = await db.query(
+      `SELECT id, employee_id, date, check_in, check_out, work_hours, status, source
+       FROM attendance_records
+       WHERE employee_id = $1 AND date = CURRENT_DATE`,
+      [employee_id]
+    );
+    res.json({ record: result.rows[0] || null, date: new Date().toISOString().split('T')[0] });
+  } catch (err) {
+    console.error('GET /attendance/live-today error:', err);
+    res.status(500).json({ error: 'Failed to fetch live attendance' });
+  }
+});
 
 // ═════════════════════════════════════════════════════════════════════════════
 // SELF-SERVICE ENDPOINTS (any authenticated employee)
@@ -90,17 +213,22 @@ router.post('/checkin', async (req, res) => {
       return res.status(400).json({ error: 'No employee record linked to this user' });
     }
 
+    const { lateHH, lateMM } = await getAttendanceThresholds();
+    const now = new Date();
+    const isLateArrival = now.getHours() > lateHH || (now.getHours() === lateHH && now.getMinutes() > lateMM);
+
     const result = await db.query(
-      `INSERT INTO attendance_records (employee_id, date, check_in, status, created_by, updated_at)
-       VALUES ($1, CURRENT_DATE, NOW(), 'present', $2, NOW())
+      `INSERT INTO attendance_records (employee_id, date, check_in, status, is_late, created_by, updated_at)
+       VALUES ($1, CURRENT_DATE, NOW(), 'present', $3, $2, NOW())
        ON CONFLICT (employee_id, date)
        DO UPDATE SET
          check_in   = CASE WHEN attendance_records.check_in IS NULL THEN NOW() ELSE attendance_records.check_in END,
+         is_late    = CASE WHEN attendance_records.check_in IS NULL THEN $3 ELSE attendance_records.is_late END,
          status     = COALESCE(attendance_records.status, 'present'),
          updated_by = $2,
          updated_at = NOW()
        RETURNING *`,
-      [employeeId, req.user.id]
+      [employeeId, req.user.id, isLateArrival]
     );
 
     await logAction({
@@ -112,6 +240,7 @@ router.post('/checkin', async (req, res) => {
       req,
     });
 
+    emitAttendanceUpdate(employeeId, result.rows[0]);
     res.json({ record: result.rows[0] });
   } catch (err) {
     console.error('POST /attendance/checkin error:', err);
@@ -140,18 +269,23 @@ router.post('/checkout', async (req, res) => {
       return res.status(400).json({ error: 'No active check-in found for today' });
     }
 
+    const { earlyHH, earlyMM } = await getAttendanceThresholds();
+    const now = new Date();
+    const isEarlyLeave = now.getHours() < earlyHH || (now.getHours() === earlyHH && now.getMinutes() < earlyMM);
+
     const result = await db.query(
       `UPDATE attendance_records
-       SET check_out   = NOW(),
-           work_hours  = ROUND(EXTRACT(EPOCH FROM (NOW() - check_in)) / 3600, 2),
-           updated_by  = $2,
-           updated_at  = NOW()
+       SET check_out      = NOW(),
+           work_hours     = ROUND(EXTRACT(EPOCH FROM (NOW() - check_in)) / 3600, 2),
+           is_early_leave = $3,
+           updated_by     = $2,
+           updated_at     = NOW()
        WHERE employee_id = $1
          AND date = CURRENT_DATE
          AND check_in IS NOT NULL
          AND check_out IS NULL
        RETURNING *`,
-      [employeeId, req.user.id]
+      [employeeId, req.user.id, isEarlyLeave]
     );
 
     await logAction({
@@ -164,6 +298,7 @@ router.post('/checkout', async (req, res) => {
       req,
     });
 
+    emitAttendanceUpdate(employeeId, result.rows[0]);
     res.json({ record: result.rows[0] });
   } catch (err) {
     console.error('POST /attendance/checkout error:', err);
@@ -241,6 +376,13 @@ router.get('/summary/:employeeId', async (req, res) => {
     if (period === 'last_30_days') {
       const d = new Date(now); d.setDate(d.getDate() - 30);
       startDate = d.toISOString().split('T')[0];
+    } else if (period === 'last_90_days') {
+      const d = new Date(now); d.setDate(d.getDate() - 90);
+      startDate = d.toISOString().split('T')[0];
+    } else if (period === 'this_year') {
+      startDate = `${now.getFullYear()}-01-01`;
+    } else if (period === 'all_time') {
+      startDate = '2000-01-01';
     } else if (period === 'custom' && req.query.start_date && req.query.end_date) {
       startDate = req.query.start_date;
       endDate   = req.query.end_date;
@@ -328,19 +470,22 @@ router.get('/summary/:employeeId', async (req, res) => {
 
     // ── Detailed records for the table ───────────────────────────────────
     const page  = Math.max(1, parseInt(req.query.page)  || 1);
-    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 100));
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 100));
     const offset = (page - 1) * limit;
 
     const [countRes, recordsRes] = await Promise.all([
       db.query(
-        `SELECT COUNT(*) FROM attendance_records WHERE employee_id = $1 AND date >= $2 AND date <= $3`,
+        `SELECT COUNT(*) FROM attendance_records ar WHERE ar.employee_id = $1 AND ar.date >= $2 AND ar.date <= $3`,
         [employeeId, startDate, endDate]
       ),
       db.query(
-        `SELECT id, date, check_in, check_out, work_hours, status, notes, source
-         FROM attendance_records
-         WHERE employee_id = $1 AND date >= $2 AND date <= $3
-         ORDER BY date DESC, check_in DESC
+        `SELECT ar.id, ar.date, ar.check_in, ar.check_out, ar.work_hours,
+                ar.status, ar.notes, ar.source, ar.device_id,
+                dc.name AS device_name
+         FROM attendance_records ar
+         LEFT JOIN device_connections dc ON dc.id = ar.device_id
+         WHERE ar.employee_id = $1 AND ar.date >= $2 AND ar.date <= $3
+         ORDER BY ar.date DESC, ar.check_in DESC
          LIMIT $4 OFFSET $5`,
         [employeeId, startDate, endDate, limit, offset]
       ),
@@ -518,6 +663,7 @@ router.get('/all', authorize(...LEAD_ROLES), async (req, res) => {
         ar.check_out,
         ar.work_hours,
         ar.status,
+        ar.source,
         ar.notes,
         ar.created_by,
         ar.updated_by,
@@ -723,6 +869,7 @@ router.post('/manual', authorize(...ADMIN_ROLES), async (req, res) => {
       details: `Manually created attendance for employee ${employee_id} on ${date}`,
     });
 
+    emitAttendanceUpdate(employee_id, result.rows[0]);
     res.status(201).json({ record: result.rows[0] });
   } catch (err) {
     console.error('POST /attendance/manual error:', err);
@@ -837,6 +984,7 @@ router.put('/:id', authorize(...ADMIN_ROLES), async (req, res) => {
       details: `Updated attendance record ${id}`,
     });
 
+    emitAttendanceUpdate(result.rows[0].employee_id, result.rows[0]);
     res.json({ record: result.rows[0] });
   } catch (err) {
     console.error('PUT /attendance/:id error:', err);
@@ -877,4 +1025,49 @@ router.delete('/:id', authorize(...ADMIN_ROLES), async (req, res) => {
   }
 });
 
+/**
+ * GET /attendance/settings
+ * Returns current attendance threshold settings.
+ */
+router.get('/settings', authorize('super_admin', 'hr_admin'), async (_req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT key, value, description FROM app_settings
+       WHERE key IN ('attendance_late_threshold', 'attendance_early_leave_threshold')`
+    );
+    const settings = {};
+    for (const row of result.rows) settings[row.key] = { value: row.value, description: row.description };
+    res.json(settings);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch attendance settings' });
+  }
+});
+
+/**
+ * PUT /attendance/settings
+ * Update late/early-leave threshold settings (super_admin / hr_admin only).
+ * Body: { attendance_late_threshold: "HH:MM", attendance_early_leave_threshold: "HH:MM" }
+ */
+router.put('/settings', authorize('super_admin', 'hr_admin'), async (req, res) => {
+  try {
+    const allowed = ['attendance_late_threshold', 'attendance_early_leave_threshold'];
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) {
+        if (!/^\d{2}:\d{2}$/.test(req.body[key])) {
+          return res.status(400).json({ error: `Invalid time format for ${key}. Use HH:MM` });
+        }
+        await db.query(
+          `INSERT INTO app_settings (key, value, updated_by, updated_at) VALUES ($1, $2, $3, NOW())
+           ON CONFLICT (key) DO UPDATE SET value = $2, updated_by = $3, updated_at = NOW()`,
+          [key, req.body[key], req.user.id]
+        );
+      }
+    }
+    res.json({ message: 'Attendance settings updated' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update attendance settings' });
+  }
+});
+
 module.exports = router;
+module.exports.emitAttendanceUpdate = emitAttendanceUpdate;

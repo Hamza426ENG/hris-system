@@ -5,7 +5,7 @@ const ConfigContext = createContext();
 
 // Fallback values used while the config is loading or if the API fails
 const DEFAULTS = {
-  roles: ['super_admin', 'hr_admin', 'manager', 'team_lead', 'employee'],
+  roles: ['super_admin', 'hr_admin', 'hr_manager', 'manager', 'team_lead', 'employee'],
   employeeStatuses: ['active', 'inactive', 'on_leave', 'terminated', 'probation'],
   genders: ['male', 'female', 'other', 'prefer_not_to_say'],
   employmentTypes: ['full_time', 'part_time', 'contract', 'intern', 'consultant'],

@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthContext';
 import { attendanceAPI, employeesAPI, leavesAPI } from '@/services/api';
 import {
   LogIn, LogOut, Calendar, User, Building2,
   CheckCircle2, Briefcase, TrendingUp, ChevronRight,
-  RotateCcw, Hash, MapPin, Fingerprint
+  RotateCcw, Hash, Fingerprint, Clock,
+  ClipboardList, TicketCheck, Mail
 } from 'lucide-react';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -34,14 +35,11 @@ function greeting() {
 }
 
 const ROLE_STYLE = 'bg-white/15 text-white/90 border border-white/20';
-
 const fmtRole = (r) => r ? r.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : '';
-
-// ── initials avatar ──────────────────────────────────────────────────────────
 
 function Initials({ name, avatarUrl, size = 'lg' }) {
   const initials = (name || '').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-  const dims = size === 'xl' ? 'w-16 h-16 text-xl' : size === 'lg' ? 'w-12 h-12 text-lg' : 'w-9 h-9 text-sm';
+  const dims = size === 'xl' ? 'w-14 h-14 text-lg' : size === 'lg' ? 'w-12 h-12 text-lg' : 'w-9 h-9 text-sm';
   if (avatarUrl) {
     return <img src={avatarUrl} alt={name} className={`${dims} rounded-full object-cover ring-2 ring-white/25`} />;
   }
@@ -52,8 +50,6 @@ function Initials({ name, avatarUrl, size = 'lg' }) {
   );
 }
 
-// ── leave balance bar ────────────────────────────────────────────────────────
-
 function BalanceRow({ label, used, total, color }) {
   const available = total - used;
   const pct = total > 0 ? Math.min(100, (used / total) * 100) : 0;
@@ -62,27 +58,48 @@ function BalanceRow({ label, used, total, color }) {
     green:  { bar: 'bg-oe-success',  text: 'text-oe-success' },
     yellow: { bar: 'bg-oe-warning',  text: 'text-oe-warning' },
     purple: { bar: 'bg-oe-purple',   text: 'text-oe-purple' },
+    cyan:   { bar: 'bg-oe-cyan',     text: 'text-oe-cyan' },
+    danger: { bar: 'bg-oe-danger',   text: 'text-oe-danger' },
   };
   const c = colors[color] || colors.blue;
 
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
-        <span className="text-xs text-oe-muted truncate">{label}</span>
+        <span className="text-xs text-oe-muted">{label}</span>
         <span className={`text-xs font-semibold tabular-nums ${c.text}`}>
           {available}<span className="text-oe-muted font-normal">/{total}d</span>
         </span>
       </div>
-      <div className="h-1 rounded-full bg-oe-border/40 overflow-hidden">
+      <div className="h-1.5 rounded-full bg-oe-border/40 overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-700 ease-out ${c.bar}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
 }
 
+function MiniStat({ icon: Icon, label, value, color = 'text-oe-primary', bg = 'bg-oe-primary/10', onClick }) {
+  return (
+    <div
+      className={`flex items-center gap-2.5 p-2.5 rounded-lg transition-all duration-200 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] hover:shadow-sm hover:scale-[1.02] ${onClick ? 'cursor-pointer active:scale-[0.98]' : ''}`}
+      onClick={onClick}
+    >
+      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${bg}`}>
+        <Icon size={14} className={color} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-base font-bold text-oe-text leading-none">{value}</div>
+        <div className="text-[10px] text-oe-muted leading-tight mt-0.5">{label}</div>
+      </div>
+    </div>
+  );
+}
+
+const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+
 // ── main component ───────────────────────────────────────────────────────────
 
-export default function ProfileDive() {
+export default function ProfileDive({ stats, recentLeaves, myTicketCount }) {
   const { user } = useAuth();
   const router = useRouter();
 
@@ -95,13 +112,17 @@ export default function ProfileDive() {
   const [balances, setBalances] = useState([]);
   const mountedRef = useRef(true);
 
-  // ── live clock ────────────────────────────────────────────────────────────
+  // Height measurement refs
+  const frontRef = useRef(null);
+  const backRef = useRef(null);
+  const [frontH, setFrontH] = useState(0);
+  const [backH, setBackH] = useState(0);
+
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
 
-  // ── data fetch ────────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
     if (!user?.employeeId) { setAttLoading(false); return; }
     try {
@@ -124,7 +145,18 @@ export default function ProfileDive() {
     return () => { mountedRef.current = false; };
   }, [loadData]);
 
-  // ── actions ───────────────────────────────────────────────────────────────
+  // Measure face heights after render
+  useLayoutEffect(() => {
+    const measure = () => {
+      if (frontRef.current) setFrontH(frontRef.current.scrollHeight);
+      if (backRef.current) setBackH(backRef.current.scrollHeight);
+    };
+    measure();
+    // Re-measure when data loads
+    const id = setTimeout(measure, 100);
+    return () => clearTimeout(id);
+  }, [employee, balances, recentLeaves, stats, attendance, attLoading]);
+
   const handleCheckIn = async (e) => {
     e.stopPropagation();
     setActionLoading(true);
@@ -150,10 +182,14 @@ export default function ProfileDive() {
   const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
   const dateStr = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
-  const displayBalances = balances.slice(0, 4);
-  const balanceColors = ['blue', 'green', 'yellow', 'purple'];
+  const balanceColors = ['blue', 'green', 'yellow', 'purple', 'cyan', 'danger'];
 
-  // ── render ────────────────────────────────────────────────────────────────
+  const statusBadge = (s) => {
+    const map = { pending: 'badge-pending', approved: 'badge-approved', rejected: 'badge-rejected', cancelled: 'badge-inactive' };
+    return <span className={map[s] || 'badge-inactive'}>{s}</span>;
+  };
+
+  const activeH = flipped ? backH : frontH;
 
   return (
     <div
@@ -161,257 +197,289 @@ export default function ProfileDive() {
       style={{ perspective: '1200px' }}
       onClick={() => setFlipped(f => !f)}
     >
-      {/* grid-stacking: both faces in the same cell so container height = max(front, back) */}
+      {/* Outer wrapper: animated height so it grows/shrinks smoothly on flip */}
       <div
-        className="transition-transform duration-700 ease-in-out"
-        style={{
-          display: 'grid',
-          transformStyle: 'preserve-3d',
-          transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
-        }}
+        className="relative overflow-hidden transition-[height] duration-700 ease-in-out"
+        style={{ height: activeH || 'auto' }}
       >
-        {/* ━━━━━━━━━━━━━ FRONT FACE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+        {/* Inner rotator — both faces positioned absolutely so they don't affect each other's height */}
         <div
-          className="w-full rounded-xl overflow-hidden shadow-sm border border-oe-border"
-          style={{ gridArea: '1/1', backfaceVisibility: 'hidden' }}
+          className="absolute inset-0 transition-transform duration-700 ease-in-out"
+          style={{
+            transformStyle: 'preserve-3d',
+            transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+          }}
         >
-          {/* gradient header — avatar centered, minimal info */}
-          <div className="gradient-bg px-6 pt-6 pb-5">
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-2">
+          {/* ━━━━━━━━━━━━━ FRONT FACE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+          <div
+            ref={frontRef}
+            className="absolute top-0 left-0 w-full rounded-xl overflow-hidden shadow-sm border border-oe-border"
+            style={{ backfaceVisibility: 'hidden' }}
+          >
+            {/* Gradient Header */}
+            <div className="gradient-bg px-5 pt-5 pb-4">
+              <div className="flex items-center justify-between mb-4">
                 <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${ROLE_STYLE}`}>
                   {fmtRole(user.role)}
                 </span>
+                <div className="text-right">
+                  <div className="text-white/90 text-[11px] font-mono tracking-wider tabular-nums">{timeStr}</div>
+                  <div className="text-white/50 text-[10px]">{dateStr}</div>
+                </div>
               </div>
-              <div className="text-right">
-                <div className="text-white/90 text-[11px] font-mono tracking-wider tabular-nums">{timeStr}</div>
-                <div className="text-white/50 text-[10px]">{dateStr}</div>
+
+              <div className="flex items-center gap-3">
+                <Initials name={fullName} avatarUrl={user.avatarUrl} size="xl" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-white/60 text-[11px] font-medium tracking-wide">{greeting()}</div>
+                  <div className="text-white font-bold text-lg leading-tight mt-0.5 break-words">{fullName}</div>
+                  {employee?.department_name && (
+                    <div className="flex items-center gap-1.5 text-white/50 text-xs mt-1">
+                      <Building2 size={11} className="flex-shrink-0" />
+                      <span className="break-words">{employee.department_name}{employee?.position_title ? ` · ${employee.position_title}` : ''}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-4">
-              <Initials name={fullName} avatarUrl={user.avatarUrl} size="xl" />
-              <div className="min-w-0 flex-1">
-                <div className="text-white/60 text-[11px] font-medium tracking-wide">{greeting()}</div>
-                <div className="text-white font-bold text-xl leading-tight truncate mt-0.5">{fullName}</div>
-                {employee?.department_name && (
-                  <div className="flex items-center gap-1.5 text-white/50 text-xs mt-1.5">
-                    <Building2 size={11} />
-                    <span>{employee.department_name}</span>
-                    {employee?.position_title && (
-                      <>
-                        <span className="text-white/30">·</span>
-                        <span>{employee.position_title}</span>
-                      </>
+            {/* Attendance Strip */}
+            <div className="bg-oe-card px-5 py-3">
+              {attLoading ? (
+                <div className="flex items-center justify-center h-9">
+                  <div className="w-4 h-4 border-2 border-oe-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    {!attendance && (
+                      <span className="inline-flex items-center gap-1.5 text-sm text-oe-muted">
+                        <span className="w-1.5 h-1.5 rounded-full bg-oe-muted/40" />
+                        Not checked in
+                      </span>
+                    )}
+                    {checkedIn && (
+                      <div className="flex items-center gap-1.5 text-oe-success text-sm font-medium">
+                        <span className="w-1.5 h-1.5 rounded-full bg-oe-success animate-pulse flex-shrink-0" />
+                        Working
+                        <span className="text-oe-muted font-normal text-xs">since {fmtTime(attendance.check_in)}</span>
+                      </div>
+                    )}
+                    {checkedOut && (
+                      <div className="flex items-center gap-1.5 text-oe-success/80 text-sm font-medium">
+                        <CheckCircle2 size={13} className="flex-shrink-0" />
+                        <span>{parseFloat(attendance.work_hours || 0).toFixed(1)}h logged</span>
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
-            </div>
-          </div>
 
-          {/* attendance strip */}
-          <div className="bg-oe-card px-6 py-3.5">
-            {attLoading ? (
-              <div className="flex items-center justify-center h-10">
-                <div className="w-4 h-4 border-2 border-oe-primary border-t-transparent rounded-full animate-spin" />
-              </div>
-            ) : (
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  {!attendance && (
-                    <span className="inline-flex items-center gap-1.5 text-sm text-oe-muted">
-                      <span className="w-1.5 h-1.5 rounded-full bg-oe-muted/40" />
-                      Not checked in
-                    </span>
-                  )}
                   {checkedIn && (
-                    <div>
-                      <div className="flex items-center gap-1.5 text-oe-success text-sm font-medium">
-                        <span className="w-1.5 h-1.5 rounded-full bg-oe-success animate-pulse" />
-                        Working
-                        <span className="text-oe-muted font-normal text-xs ml-1">since {fmtTime(attendance.check_in)}</span>
+                    <div className="text-right flex-shrink-0">
+                      <div className="text-lg font-mono font-bold text-oe-text tabular-nums leading-none">
+                        {fmtElapsed(attendance.check_in)}
                       </div>
                     </div>
                   )}
-                  {checkedOut && (
-                    <div className="flex items-center gap-1.5 text-oe-success/80 text-sm font-medium">
-                      <CheckCircle2 size={13} />
-                      <span>{parseFloat(attendance.work_hours || 0).toFixed(1)}h logged</span>
-                    </div>
-                  )}
-                </div>
 
-                {checkedIn && (
-                  <div className="text-right flex-shrink-0">
-                    <div className="text-lg font-mono font-bold text-oe-text tabular-nums leading-none">
-                      {fmtElapsed(attendance.check_in)}
+                  <div className="flex-shrink-0">
+                    {!attendance && (
+                      <button onClick={handleCheckIn} disabled={actionLoading} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-oe-success text-white text-xs font-semibold hover:bg-oe-success/90 disabled:opacity-50 transition-colors">
+                        {actionLoading ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <LogIn size={13} />}
+                        Check In
+                      </button>
+                    )}
+                    {checkedIn && (
+                      <button onClick={handleCheckOut} disabled={actionLoading} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-oe-warning/90 text-white text-xs font-semibold hover:bg-oe-warning disabled:opacity-50 transition-colors">
+                        {actionLoading ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <LogOut size={13} />}
+                        Check Out
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Stats Grid — no extra borders, seamless */}
+            <div className="bg-oe-card px-5 pb-3 pt-1">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                <MiniStat icon={Calendar} label="Leaves Allocated" value={stats?.leavesAllocated || 0} color="text-oe-primary" bg="bg-oe-primary/10" />
+                <MiniStat icon={Clock} label="Leaves Used" value={stats?.leavesUsed || 0} color="text-oe-warning" bg="bg-oe-warning/10" onClick={(e) => { e.stopPropagation(); router.push('/leaves'); }} />
+                <MiniStat icon={ClipboardList} label="Pending Requests" value={stats?.pendingRequests || 0} color="text-oe-purple" bg="bg-oe-purple/10" onClick={(e) => { e.stopPropagation(); router.push('/leaves'); }} />
+                <MiniStat icon={Fingerprint} label="Days Present" value={stats?.daysPresent || 0} color="text-oe-success" bg="bg-oe-success/10" onClick={(e) => { e.stopPropagation(); router.push('/attendance'); }} />
+                <MiniStat
+                  icon={CheckCircle2}
+                  label="Today"
+                  value={stats?.checkedInToday ? (stats?.checkedOutToday ? 'Done' : 'In') : 'Not Yet'}
+                  color={stats?.checkedInToday ? 'text-oe-success' : 'text-oe-danger'}
+                  bg={stats?.checkedInToday ? 'bg-oe-success/10' : 'bg-oe-danger/10'}
+                  onClick={(e) => { e.stopPropagation(); router.push('/attendance'); }}
+                />
+                <MiniStat icon={TicketCheck} label="My Tickets" value={myTicketCount || 0} color="text-oe-cyan" bg="bg-oe-cyan/10" onClick={(e) => { e.stopPropagation(); router.push('/tickets'); }} />
+              </div>
+            </div>
+
+            {/* Footer — compact, no heavy border */}
+            <div className="bg-oe-card px-5 py-2 flex items-center justify-between">
+              <button onClick={(e) => { e.stopPropagation(); router.push('/attendance'); }} className="flex items-center gap-1.5 text-[11px] text-oe-primary font-medium hover:underline">
+                <Fingerprint size={11} /> View Attendance
+              </button>
+              <div className="flex items-center gap-1.5">
+                <RotateCcw size={10} className="text-oe-muted/60" />
+                <span className="text-[10px] text-oe-muted/60 tracking-wide">Tap to flip</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ━━━━━━━━━━━━━ BACK FACE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+          <div
+            ref={backRef}
+            className="absolute top-0 left-0 w-full rounded-xl overflow-hidden shadow-sm border border-oe-border"
+            style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
+          >
+            {/* Mini Header */}
+            <div className="gradient-bg px-5 py-3.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 min-w-0">
+                  <Initials name={fullName} avatarUrl={user.avatarUrl} size="sm" />
+                  <div className="min-w-0">
+                    <div className="text-white font-semibold text-sm break-words">{fullName}</div>
+                    <div className="text-white/50 text-[11px]">{employee?.employee_id || 'N/A'}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 text-white/50 text-[10px] flex-shrink-0">
+                  <RotateCcw size={10} />
+                  <span>Tap to flip</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Employee Details Grid */}
+            <div className="bg-oe-card px-5 py-3.5">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+                {employee?.position_title && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-md bg-oe-primary/8 flex items-center justify-center flex-shrink-0">
+                      <Briefcase size={12} className="text-oe-primary" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] text-oe-muted uppercase tracking-wider leading-tight">Position</div>
+                      <div className="text-xs font-medium text-oe-text break-words leading-snug">{employee.position_title}</div>
                     </div>
                   </div>
                 )}
+                {employee?.department_name && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-md bg-oe-purple/8 flex items-center justify-center flex-shrink-0">
+                      <Building2 size={12} className="text-oe-purple" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] text-oe-muted uppercase tracking-wider leading-tight">Department</div>
+                      <div className="text-xs font-medium text-oe-text break-words leading-snug">{employee.department_name}</div>
+                    </div>
+                  </div>
+                )}
+                {employee?.employee_id && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-md bg-oe-cyan/8 flex items-center justify-center flex-shrink-0">
+                      <Hash size={12} className="text-oe-cyan" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] text-oe-muted uppercase tracking-wider leading-tight">Employee ID</div>
+                      <div className="text-xs font-medium text-oe-text">{employee.employee_id}</div>
+                    </div>
+                  </div>
+                )}
+                {employee?.hire_date && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-md bg-oe-success/8 flex items-center justify-center flex-shrink-0">
+                      <Calendar size={12} className="text-oe-success" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] text-oe-muted uppercase tracking-wider leading-tight">Joined</div>
+                      <div className="text-xs font-medium text-oe-text">
+                        {new Date(employee.hire_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short' })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {employee?.work_email && (
+                  <div className="flex items-center gap-2 col-span-2">
+                    <div className="w-6 h-6 rounded-md bg-oe-warning/8 flex items-center justify-center flex-shrink-0">
+                      <Mail size={12} className="text-oe-warning" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] text-oe-muted uppercase tracking-wider leading-tight">Email</div>
+                      <div className="text-xs font-medium text-oe-text break-all leading-snug">{employee.work_email}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
 
-                <div className="flex-shrink-0">
-                  {!attendance && (
-                    <button
-                      onClick={handleCheckIn}
-                      disabled={actionLoading}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-oe-success text-white text-xs font-semibold hover:bg-oe-success/90 disabled:opacity-50 transition-colors"
-                    >
-                      {actionLoading ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <LogIn size={13} />}
-                      Check In
-                    </button>
-                  )}
-                  {checkedIn && (
-                    <button
-                      onClick={handleCheckOut}
-                      disabled={actionLoading}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-oe-warning/90 text-white text-xs font-semibold hover:bg-oe-warning disabled:opacity-50 transition-colors"
-                    >
-                      {actionLoading ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <LogOut size={13} />}
-                      Check Out
-                    </button>
-                  )}
+            {/* Leave Balances */}
+            {balances.length > 0 && (
+              <div className="bg-oe-card px-5 py-3 border-t border-oe-border/40">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-semibold text-oe-muted uppercase tracking-wider">Leave Balances</span>
+                  <button onClick={(e) => { e.stopPropagation(); router.push('/leaves'); }} className="text-[10px] text-oe-primary hover:underline">
+                    View all
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {balances.slice(0, 6).map((b, i) => (
+                    <BalanceRow
+                      key={b.leave_type_id || i}
+                      label={b.leave_type_name || b.name}
+                      used={parseInt(b.used_days || 0)}
+                      total={parseInt(b.allocated_days || 0)}
+                      color={balanceColors[i % balanceColors.length]}
+                    />
+                  ))}
                 </div>
               </div>
             )}
-          </div>
 
-          {/* attendance link + tap hint */}
-          <div className="bg-oe-card border-t border-oe-border/50 px-6 py-2 flex items-center justify-between">
-            <button
-              onClick={(e) => { e.stopPropagation(); router.push('/attendance'); }}
-              className="flex items-center gap-1.5 text-[11px] text-oe-primary font-medium hover:underline"
-            >
-              <Fingerprint size={11} /> View Attendance
-            </button>
-            <div className="flex items-center gap-1.5">
-              <RotateCcw size={10} className="text-oe-muted/60" />
-              <span className="text-[10px] text-oe-muted/60 tracking-wide">Tap to flip</span>
-            </div>
-          </div>
-        </div>
-
-        {/* ━━━━━━━━━━━━━ BACK FACE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        <div
-          className="w-full rounded-xl overflow-hidden shadow-sm border border-oe-border"
-          style={{ gridArea: '1/1', backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
-        >
-          {/* mini header */}
-          <div className="gradient-bg px-6 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3 min-w-0">
-                <Initials name={fullName} avatarUrl={user.avatarUrl} size="sm" />
-                <div className="min-w-0">
-                  <div className="text-white font-semibold text-sm truncate">{fullName}</div>
-                  <div className="text-white/50 text-[11px]">{employee?.employee_id || 'N/A'}</div>
+            {/* Recent Leaves */}
+            {recentLeaves && recentLeaves.length > 0 && (
+              <div className="bg-oe-card px-5 py-3 border-t border-oe-border/40">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-semibold text-oe-muted uppercase tracking-wider">Recent Leaves</span>
+                  <button onClick={(e) => { e.stopPropagation(); router.push('/leaves'); }} className="text-[10px] text-oe-primary hover:underline">
+                    View all
+                  </button>
                 </div>
-              </div>
-              <div className="flex items-center gap-1.5 text-white/50 text-[10px]">
-                <RotateCcw size={10} />
-                <span>Tap to flip</span>
-              </div>
-            </div>
-          </div>
-
-          {/* details grid — two columns */}
-          <div className="bg-oe-card px-6 py-4">
-            <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-              {employee?.position_title && (
-                <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-lg bg-oe-primary/8 flex items-center justify-center flex-shrink-0">
-                    <Briefcase size={13} className="text-oe-primary" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-[10px] text-oe-muted uppercase tracking-wider">Position</div>
-                    <div className="text-xs font-medium text-oe-text truncate">{employee.position_title}</div>
-                  </div>
-                </div>
-              )}
-              {employee?.department_name && (
-                <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-lg bg-oe-purple/8 flex items-center justify-center flex-shrink-0">
-                    <Building2 size={13} className="text-oe-purple" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-[10px] text-oe-muted uppercase tracking-wider">Department</div>
-                    <div className="text-xs font-medium text-oe-text truncate">{employee.department_name}</div>
-                  </div>
-                </div>
-              )}
-              {employee?.employee_id && (
-                <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-lg bg-oe-cyan/8 flex items-center justify-center flex-shrink-0">
-                    <Hash size={13} className="text-oe-cyan" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-[10px] text-oe-muted uppercase tracking-wider">Employee ID</div>
-                    <div className="text-xs font-medium text-oe-text">{employee.employee_id}</div>
-                  </div>
-                </div>
-              )}
-              {employee?.hire_date && (
-                <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-lg bg-oe-success/8 flex items-center justify-center flex-shrink-0">
-                    <Calendar size={13} className="text-oe-success" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-[10px] text-oe-muted uppercase tracking-wider">Joined</div>
-                    <div className="text-xs font-medium text-oe-text">
-                      {new Date(employee.hire_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short' })}
+                <div className="space-y-1.5">
+                  {recentLeaves.slice(0, 4).map(l => (
+                    <div key={l.id} className="flex items-center justify-between py-1.5 border-b border-oe-border/30 last:border-0">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-medium text-oe-text">{l.leave_type_name}</div>
+                        <div className="text-[10px] text-oe-muted">{fmtDate(l.start_date)} — {fmtDate(l.end_date)} · {l.total_days}d</div>
+                      </div>
+                      <div className="flex-shrink-0 ml-2">{statusBadge(l.status)}</div>
                     </div>
-                  </div>
+                  ))}
                 </div>
-              )}
-              {employee?.work_email && (
-                <div className="flex items-center gap-2.5 col-span-2">
-                  <div className="w-7 h-7 rounded-lg bg-oe-warning/8 flex items-center justify-center flex-shrink-0">
-                    <MapPin size={13} className="text-oe-warning" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-[10px] text-oe-muted uppercase tracking-wider">Email</div>
-                    <div className="text-xs font-medium text-oe-text truncate">{employee.work_email}</div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* leave balances */}
-          {displayBalances.length > 0 && (
-            <div className="bg-oe-card px-6 py-3.5 border-t border-oe-border/40">
-              <div className="flex items-center justify-between mb-2.5">
-                <span className="text-[10px] font-semibold text-oe-muted uppercase tracking-wider">Leave Balances</span>
-                <button
-                  onClick={(e) => { e.stopPropagation(); router.push('/leaves'); }}
-                  className="text-[10px] text-oe-primary hover:underline"
-                >
-                  View all
-                </button>
               </div>
-              <div className="space-y-2">
-                {displayBalances.map((b, i) => (
-                  <BalanceRow
-                    key={b.leave_type_id || i}
-                    label={b.leave_type_name || b.name}
-                    used={parseInt(b.used_days || 0)}
-                    total={parseInt(b.allocated_days || 0)}
-                    color={balanceColors[i % balanceColors.length]}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
+            )}
 
-          {/* view profile CTA */}
-          <div className="bg-oe-card border-t border-oe-border/40 px-6 py-2.5">
-            <button
-              onClick={(e) => { e.stopPropagation(); user.employeeId && router.push(`/employees/${user.employeeId}`); }}
-              className="w-full flex items-center justify-center gap-1.5 text-xs text-oe-primary font-medium hover:underline py-0.5"
-            >
-              <TrendingUp size={12} />
-              View full profile
-              <ChevronRight size={12} />
-            </button>
+            {/* View Profile CTA */}
+            <div className="bg-oe-card border-t border-oe-border/40 px-5 py-2.5">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (user.employeeId) {
+                    router.push(`/employees/${user.employeeId}`);
+                  } else {
+                    router.push('/employees');
+                  }
+                }}
+                className="w-full flex items-center justify-center gap-1.5 text-xs text-oe-primary font-medium hover:underline py-0.5"
+              >
+                <TrendingUp size={12} />
+                View full profile
+                <ChevronRight size={12} />
+              </button>
+            </div>
           </div>
         </div>
       </div>

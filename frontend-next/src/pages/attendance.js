@@ -4,9 +4,8 @@ import { useAuth } from '@/context/AuthContext';
 import { attendanceAPI, employeesAPI } from '@/services/api';
 import {
   Fingerprint, Clock, LogIn, LogOut, Calendar, TrendingUp,
-  Search, Download, ChevronDown, ArrowUpDown, Building2,
-  Briefcase, AlertCircle, ChevronLeft, ChevronRight, Filter,
-  Sun, Moon as MoonIcon, Coffee
+  Search, Download, ChevronDown, AlertCircle, ChevronLeft,
+  ChevronRight, RefreshCw, X, Info
 } from 'lucide-react';
 import PrivateRoute from '@/components/auth/PrivateRoute';
 import Layout from '@/components/layout/Layout';
@@ -177,7 +176,10 @@ function PeriodSelector({ value, onChange, startDate, endDate, onStartChange, on
         onChange={e => onChange(e.target.value)}
         className="px-4 py-2.5 rounded-xl border border-oe-border bg-oe-surface text-sm text-oe-text focus:border-oe-primary outline-none"
       >
+        <option value="all_time">All Time</option>
+        <option value="this_year">This Year</option>
         <option value="month_to_date">Month to Date</option>
+        <option value="last_90_days">Last 90 Days</option>
         <option value="last_30_days">Last 30 Days</option>
         <option value="custom">Custom Range</option>
       </select>
@@ -202,24 +204,411 @@ function PeriodSelector({ value, onChange, startDate, endDate, onStartChange, on
   );
 }
 
+// ── Detail Modal ─────────────────────────────────────────────────────────────
+
+function AttendanceDetailModal({ record, punches, onClose }) {
+  if (!record) return null;
+
+  const workHrs  = parseFloat(record.work_hours || 0);
+  const salaryHrs = Math.min(workHrs, 8);
+  const overtime  = workHrs > 8 ? (workHrs - 8).toFixed(2) : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="bg-oe-card border border-oe-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-oe-border">
+          <div>
+            <h2 className="text-base font-bold text-oe-text">Attendance Detail</h2>
+            <p className="text-xs text-oe-muted mt-0.5">
+              {new Date(record.date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-oe-muted hover:text-oe-text hover:bg-oe-bg transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-5 space-y-5">
+          {/* Time grid */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-oe-success/5 border border-oe-success/20 rounded-xl p-4 text-center">
+              <div className="text-[10px] font-bold text-oe-success uppercase tracking-wider mb-1">Check In</div>
+              <div className="text-xl font-bold text-oe-text tabular-nums">
+                {record.check_in ? fmtTime(record.check_in) : <span className="text-oe-danger text-base">Missing</span>}
+              </div>
+            </div>
+            <div className="bg-oe-danger/5 border border-oe-danger/20 rounded-xl p-4 text-center">
+              <div className="text-[10px] font-bold text-oe-danger uppercase tracking-wider mb-1">Check Out</div>
+              <div className="text-xl font-bold text-oe-text tabular-nums">
+                {record.check_out ? fmtTime(record.check_out) : <span className="text-oe-warning text-base">Not out</span>}
+              </div>
+            </div>
+          </div>
+
+          {/* Hours breakdown */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-oe-bg rounded-xl p-3 text-center">
+              <div className="text-[10px] text-oe-muted font-medium uppercase tracking-wide mb-1">Actual Hours</div>
+              <div className="text-base font-bold text-oe-text tabular-nums">{workHrs > 0 ? fmtHoursLong(workHrs) : '—'}</div>
+            </div>
+            <div className="bg-oe-bg rounded-xl p-3 text-center">
+              <div className="text-[10px] text-oe-muted font-medium uppercase tracking-wide mb-1">Salary Hours</div>
+              <div className="text-base font-bold text-oe-text tabular-nums">{salaryHrs > 0 ? fmtHoursLong(salaryHrs) : '—'}</div>
+            </div>
+            <div className="bg-oe-bg rounded-xl p-3 text-center">
+              <div className="text-[10px] text-oe-muted font-medium uppercase tracking-wide mb-1">Overtime</div>
+              <div className={`text-base font-bold tabular-nums ${overtime ? 'text-oe-success' : 'text-oe-muted'}`}>
+                {overtime ? `+${overtime}h` : '—'}
+              </div>
+            </div>
+          </div>
+
+          {/* Meta */}
+          <div className="space-y-2 text-sm">
+            <div className="flex items-center justify-between py-2 border-b border-oe-border/40">
+              <span className="text-oe-muted">Status</span>
+              <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                record.status === 'present' ? 'bg-oe-success/10 text-oe-success' :
+                record.status === 'absent'  ? 'bg-oe-danger/10 text-oe-danger' :
+                'bg-oe-surface text-oe-muted'
+              }`}>{record.status || '—'}</span>
+            </div>
+            <div className="flex items-center justify-between py-2 border-b border-oe-border/40">
+              <span className="text-oe-muted">Source</span>
+              <span className="font-medium text-oe-text capitalize">{record.source || 'manual'}</span>
+            </div>
+            {record.device_name && (
+              <div className="flex items-center justify-between py-2 border-b border-oe-border/40">
+                <span className="text-oe-muted">Device</span>
+                <span className="font-medium text-oe-text">{record.device_name}</span>
+              </div>
+            )}
+            {record.notes && (
+              <div className="flex items-start justify-between py-2 border-b border-oe-border/40 gap-4">
+                <span className="text-oe-muted shrink-0">Notes</span>
+                <span className="text-oe-text text-right">{record.notes}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Device punch log for this date */}
+          {punches && punches.length > 0 && (
+            <div>
+              <div className="text-xs font-bold text-oe-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <Fingerprint size={12} className="text-oe-cyan" /> Device Punches ({punches.length})
+              </div>
+              <div className="border border-oe-border rounded-xl overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-oe-bg">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-semibold text-oe-muted">#</th>
+                      <th className="px-3 py-2 text-left font-semibold text-oe-muted">Time</th>
+                      <th className="px-3 py-2 text-left font-semibold text-oe-muted">Direction</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-oe-border/30">
+                    {punches.map((p, i) => (
+                      <tr key={i} className="hover:bg-oe-bg/50">
+                        <td className="px-3 py-2 text-oe-muted">{i + 1}</td>
+                        <td className="px-3 py-2 font-medium text-oe-text tabular-nums">{fmtTime(p.punch_time)}</td>
+                        <td className="px-3 py-2">
+                          {p.punch_state === 0 ? <span className="text-oe-success font-semibold">In</span>
+                          : p.punch_state === 1 ? <span className="text-oe-danger font-semibold">Out</span>
+                          : p.punch_state === 2 ? <span className="text-oe-warning">Break Out</span>
+                          : p.punch_state === 3 ? <span className="text-oe-cyan">Break In</span>
+                          : p.punch_state === 4 ? <span className="text-oe-purple">OT In</span>
+                          : p.punch_state === 5 ? <span className="text-oe-muted">OT Out</span>
+                          : <span className="text-oe-muted">—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── All-Records View (Admin/HR) ───────────────────────────────────────────────
+
+function AllRecordsView() {
+  const [records, setRecords]         = useState([]);
+  const [total, setTotal]             = useState(0);
+  const [loading, setLoading]         = useState(true);
+  const [page, setPage]               = useState(1);
+  const [search, setSearch]           = useState('');
+  const [statusFilter, setStatus]     = useState('');
+  const [startDate, setStart]         = useState('');
+  const [endDate, setEnd]             = useState('');
+  const [selectedRecord, setSelected] = useState(null);
+  const limit = 50;
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = { page, limit, sort_by: 'date', sort_order: 'desc' };
+      if (search)      params.search     = search;
+      if (statusFilter) params.status    = statusFilter;
+      if (startDate)   params.start_date = startDate;
+      if (endDate)     params.end_date   = endDate;
+      const res = await attendanceAPI.listAll(params);
+      setRecords(res.data?.records || []);
+      setTotal(res.data?.total || 0);
+    } catch (err) {
+      console.error('Failed to load all records:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, search, statusFilter, startDate, endDate]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Reset page when filters change
+  useEffect(() => { setPage(1); }, [search, statusFilter, startDate, endDate]);
+
+  const totalPages = Math.ceil(total / limit);
+
+  const exportCSV = () => {
+    if (!records.length) return;
+    const headers = ['Sr #', 'Date', 'Day', 'Employee', 'Emp Code', 'Department', 'Check In', 'Check Out', 'Work Hours', 'Status', 'Source'];
+    const rows = records.map((r, i) => [
+      i + 1 + (page - 1) * limit,
+      fmtDate(r.date),
+      fmtDay(r.date),
+      `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+      r.emp_code || '',
+      r.department_name || '',
+      r.check_in ? fmtTime(r.check_in) : '',
+      r.check_out ? fmtTime(r.check_out) : '',
+      r.work_hours ? fmtHoursLong(r.work_hours) : '',
+      r.status || '',
+      r.source || 'manual',
+    ]);
+    const csv = [headers, ...rows].map(row => row.map(c => `"${c}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `attendance_all_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="card p-0 overflow-hidden">
+      {selectedRecord && (
+        <AttendanceDetailModal
+          record={selectedRecord}
+          punches={null}
+          onClose={() => setSelected(null)}
+        />
+      )}
+      {/* Toolbar */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-4 py-3 border-b border-oe-border/50 gap-3 flex-wrap">
+        <div className="flex items-center gap-2 flex-1 min-w-[200px] max-w-sm">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-oe-bg border border-oe-border flex-1">
+            <Search size={14} className="text-oe-muted" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search name or emp code..."
+              className="bg-transparent text-sm text-oe-text outline-none flex-1"
+            />
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <select
+            value={statusFilter}
+            onChange={e => setStatus(e.target.value)}
+            className="px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-sm text-oe-text focus:border-oe-primary outline-none"
+          >
+            <option value="">All Status</option>
+            <option value="present">Present</option>
+            <option value="absent">Absent</option>
+            <option value="leave">Leave</option>
+          </select>
+          <input
+            type="date" value={startDate} onChange={e => setStart(e.target.value)}
+            className="px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-sm text-oe-text focus:border-oe-primary outline-none"
+            title="From date"
+          />
+          <input
+            type="date" value={endDate} onChange={e => setEnd(e.target.value)}
+            className="px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-sm text-oe-text focus:border-oe-primary outline-none"
+            title="To date"
+          />
+          <button
+            onClick={load}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-oe-border text-xs font-medium text-oe-text hover:bg-oe-bg transition-colors"
+          >
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
+          </button>
+          <button
+            onClick={exportCSV}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-oe-border text-xs font-medium text-oe-text hover:bg-oe-bg transition-colors"
+          >
+            <Download size={13} /> Export CSV
+          </button>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gradient-to-r from-oe-primary to-oe-primary/80 text-white">
+              <th className="px-4 py-3 text-left font-semibold text-xs w-12">Sr #</th>
+              <th className="px-4 py-3 text-left font-semibold text-xs">Date</th>
+              <th className="px-4 py-3 text-left font-semibold text-xs">Employee</th>
+              <th className="px-4 py-3 text-left font-semibold text-xs">Emp Code</th>
+              <th className="px-4 py-3 text-left font-semibold text-xs">Department</th>
+              <th className="px-4 py-3 text-left font-semibold text-xs">Check In</th>
+              <th className="px-4 py-3 text-left font-semibold text-xs">Check Out</th>
+              <th className="px-4 py-3 text-left font-semibold text-xs">Work Hours</th>
+              <th className="px-4 py-3 text-left font-semibold text-xs">Status</th>
+              <th className="px-4 py-3 text-left font-semibold text-xs">Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={10} className="text-center py-12 text-oe-muted">
+                  <div className="w-7 h-7 border-2 border-oe-primary border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                  <p className="text-sm">Loading attendance records…</p>
+                </td>
+              </tr>
+            ) : records.length === 0 ? (
+              <tr>
+                <td colSpan={10} className="text-center py-12 text-oe-muted">
+                  <Fingerprint size={28} className="mx-auto mb-2 opacity-20" />
+                  <p className="text-sm">No attendance records found</p>
+                </td>
+              </tr>
+            ) : (
+              records.map((r, i) => {
+                const hasCheckIn  = !!r.check_in;
+                const hasCheckOut = !!r.check_out;
+                const workHrs = parseFloat(r.work_hours || 0);
+                const missingIO = (hasCheckIn && !hasCheckOut) || (!hasCheckIn && hasCheckOut);
+                const isShort = workHrs > 0 && workHrs < 8;
+                const isLate  = r.check_in && new Date(r.check_in).getHours() >= 10;
+                let rowBg = '';
+                if (missingIO) rowBg = 'bg-oe-danger/5 border-l-2 border-oe-danger';
+                else if (isShort || isLate) rowBg = 'bg-oe-warning/5 border-l-2 border-oe-warning';
+
+                return (
+                  <tr
+                    key={r.id}
+                    className={`border-b border-oe-border/30 hover:bg-oe-bg/50 transition-colors cursor-pointer ${rowBg}`}
+                    onClick={() => setSelected(r)}
+                  >
+                    <td className="px-4 py-3 text-oe-muted tabular-nums">{(page - 1) * limit + i + 1}</td>
+                    <td className="px-4 py-3 text-oe-text font-medium tabular-nums whitespace-nowrap">
+                      <div>{fmtDate(r.date)}</div>
+                      <div className="text-[11px] text-oe-muted">{fmtDay(r.date)}</div>
+                    </td>
+                    <td className="px-4 py-3 text-oe-text font-medium whitespace-nowrap">
+                      {r.first_name} {r.last_name}
+                    </td>
+                    <td className="px-4 py-3 text-oe-muted tabular-nums">{r.emp_code || '—'}</td>
+                    <td className="px-4 py-3 text-oe-muted">{r.department_name || '—'}</td>
+                    <td className="px-4 py-3">
+                      {hasCheckIn ? (
+                        <span className="text-oe-success font-medium tabular-nums">{fmtTime(r.check_in)}</span>
+                      ) : (
+                        <span className="text-oe-danger text-xs font-medium">Missing</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {hasCheckOut ? (
+                        <span className="text-oe-text tabular-nums">{fmtTime(r.check_out)}</span>
+                      ) : hasCheckIn ? (
+                        <span className="text-oe-warning text-xs font-medium">Not out</span>
+                      ) : (
+                        <span className="text-oe-muted">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 font-medium text-oe-text tabular-nums">
+                      {workHrs > 0 ? fmtHoursLong(workHrs) : <span className="text-oe-muted">—</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      {r.status === 'present' ? (
+                        <span className="inline-flex items-center text-xs font-medium text-oe-success bg-oe-success/10 px-2 py-0.5 rounded-full">Present</span>
+                      ) : r.status === 'absent' ? (
+                        <span className="inline-flex items-center text-xs font-medium text-oe-danger bg-oe-danger/10 px-2 py-0.5 rounded-full">Absent</span>
+                      ) : (
+                        <span className="inline-flex items-center text-xs font-medium text-oe-muted bg-oe-surface px-2 py-0.5 rounded-full">{r.status || '—'}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {r.source === 'device' ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] text-oe-cyan"><Fingerprint size={11} /> Device</span>
+                      ) : (
+                        <span className="text-[11px] text-oe-muted">Manual</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-4 py-3 border-t border-oe-border/50">
+          <span className="text-xs text-oe-muted">
+            Showing {(page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total} records
+          </span>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+              className="p-1.5 rounded-lg text-oe-muted hover:text-oe-text hover:bg-oe-bg disabled:opacity-30 transition-colors">
+              <ChevronLeft size={16} />
+            </button>
+            <span className="text-sm text-oe-text font-medium px-2">{page} / {totalPages}</span>
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+              className="p-1.5 rounded-lg text-oe-muted hover:text-oe-text hover:bg-oe-bg disabled:opacity-30 transition-colors">
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ────────────────────────────────────────────────────────────────
 
 function AttendanceContent() {
-  const { user, permissions } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
-
-  const canSelectEmployee = permissions?.isTeamLead;
 
   const [employeeId, setEmployeeId] = useState(null);
   const [employees, setEmployees]   = useState([]);
   const [empLoading, setEmpLoading] = useState(false);
   const [data, setData]             = useState(null);
   const [loading, setLoading]       = useState(true);
-  const [period, setPeriod]         = useState('month_to_date');
+  const [period, setPeriod]         = useState('all_time');
   const [startDate, setStartDate]   = useState('');
   const [endDate, setEndDate]       = useState('');
   const [search, setSearch]         = useState('');
   const [page, setPage]             = useState(1);
+  const [selectedRecord, setSelectedRecord] = useState(null);
+  const [viewMode, setViewMode]     = useState('all'); // 'all' | 'employee'
+
+  const isHRAdmin = ['super_admin', 'hr_admin'].includes(user?.role);
+  const isLead    = ['super_admin', 'hr_admin', 'manager', 'team_lead'].includes(user?.role);
+
+  const canSelectEmployee = isLead;
+  const effectiveViewMode = isHRAdmin ? viewMode : 'employee';
 
   // Set initial employee
   useEffect(() => {
@@ -242,10 +631,10 @@ function AttendanceContent() {
 
   // Load attendance summary
   const loadSummary = useCallback(async () => {
-    if (!employeeId) return;
+    if (!employeeId) { setLoading(false); return; }
     setLoading(true);
     try {
-      const params = { period, page, limit: 100 };
+      const params = { period, page, limit: 500 };
       if (period === 'custom') {
         params.start_date = startDate;
         params.end_date = endDate;
@@ -306,7 +695,7 @@ function AttendanceContent() {
   const totalPages = Math.ceil((data?.total || 0) / (data?.limit || 100));
   const emp = data?.employee;
 
-  if (!employeeId && !loading) {
+  if (!employeeId && !loading && !isHRAdmin) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-oe-muted">
         <Fingerprint size={40} className="mb-3 opacity-30" />
@@ -317,6 +706,15 @@ function AttendanceContent() {
 
   return (
     <div className="space-y-5">
+      {/* ── Detail Modal ─────────────────────────────────────────────── */}
+      {selectedRecord && (
+        <AttendanceDetailModal
+          record={selectedRecord}
+          punches={rawByDate[selectedRecord.date ? new Date(selectedRecord.date).toISOString().split('T')[0] : '']}
+          onClose={() => setSelectedRecord(null)}
+        />
+      )}
+
       {/* ── Header Bar ──────────────────────────────────────────────── */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -325,39 +723,75 @@ function AttendanceContent() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-oe-text">Attendance</h1>
-            {emp && (
+            {effectiveViewMode === 'employee' && emp && (
               <p className="text-xs text-oe-muted mt-0.5">
                 {emp.first_name} {emp.last_name} · {emp.emp_code} · {emp.department_name || '—'}
               </p>
+            )}
+            {effectiveViewMode === 'all' && (
+              <p className="text-xs text-oe-muted mt-0.5">All Employees</p>
             )}
           </div>
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
-          {canSelectEmployee && (
+          {/* View mode toggle for admin/HR */}
+          {isHRAdmin && (
+            <div className="flex items-center rounded-xl border border-oe-border bg-oe-surface overflow-hidden">
+              <button
+                onClick={() => { setViewMode('all'); setEmployeeId(null); }}
+                className={`px-4 py-2 text-xs font-semibold transition-colors ${effectiveViewMode === 'all' ? 'bg-oe-primary text-white' : 'text-oe-muted hover:text-oe-text'}`}
+              >
+                All Records
+              </button>
+              <button
+                onClick={() => {
+                  setViewMode('employee');
+                  if (!employeeId && user?.employeeId) setEmployeeId(user.employeeId);
+                }}
+                className={`px-4 py-2 text-xs font-semibold transition-colors ${effectiveViewMode === 'employee' ? 'bg-oe-primary text-white' : 'text-oe-muted hover:text-oe-text'}`}
+              >
+                By Employee
+              </button>
+            </div>
+          )}
+          {canSelectEmployee && effectiveViewMode === 'employee' && (
             <EmployeeSelector
               value={employeeId}
-              onChange={setEmployeeId}
+              onChange={(id) => { setEmployeeId(id); setViewMode('employee'); }}
               employees={employees}
               loading={empLoading}
             />
           )}
-          <PeriodSelector
-            value={period}
-            onChange={setPeriod}
-            startDate={startDate}
-            endDate={endDate}
-            onStartChange={setStartDate}
-            onEndChange={setEndDate}
-          />
+          {effectiveViewMode === 'employee' && (
+            <PeriodSelector
+              value={period}
+              onChange={setPeriod}
+              startDate={startDate}
+              endDate={endDate}
+              onStartChange={setStartDate}
+              onEndChange={setEndDate}
+            />
+          )}
         </div>
       </div>
 
-      {loading ? (
+      {/* ── All Records View (Admin/HR default) ──────────────────────── */}
+      {effectiveViewMode === 'all' && (
+        <AllRecordsView />
+      )}
+
+      {/* ── Employee Summary View ──────────────────────────────────── */}
+      {effectiveViewMode === 'employee' && loading ? (
         <div className="flex items-center justify-center h-64">
           <div className="w-8 h-8 border-2 border-oe-primary border-t-transparent rounded-full animate-spin" />
         </div>
-      ) : data ? (
+      ) : effectiveViewMode === 'employee' && !employeeId && !loading ? (
+        <div className="flex flex-col items-center justify-center h-64 text-oe-muted">
+          <Fingerprint size={40} className="mb-3 opacity-30" />
+          <p className="text-sm">Select an employee to view their attendance</p>
+        </div>
+      ) : effectiveViewMode === 'employee' && data ? (
         <>
           {/* ── Summary Cards ────────────────────────────────────────── */}
           <div className="card p-5">
@@ -479,6 +913,16 @@ function AttendanceContent() {
                   <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-oe-danger" /> Missing I/O</span>
                 </div>
 
+                {user?.role === 'super_admin' && (
+                  <button
+                    onClick={loadSummary}
+                    disabled={loading}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-oe-border text-xs font-medium text-oe-text hover:bg-oe-bg transition-colors"
+                    title="Refresh data"
+                  >
+                    <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
+                  </button>
+                )}
                 <button
                   onClick={exportCSV}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-oe-border text-xs font-medium text-oe-text hover:bg-oe-bg transition-colors"
@@ -502,19 +946,19 @@ function AttendanceContent() {
                     <th className="px-4 py-3 text-left font-semibold text-xs">Salary Hours</th>
                     <th className="px-4 py-3 text-left font-semibold text-xs">Status</th>
                     <th className="px-4 py-3 text-left font-semibold text-xs">Source</th>
+                    <th className="px-4 py-3 text-left font-semibold text-xs w-8"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {records.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="text-center py-12 text-oe-muted">
+                      <td colSpan={10} className="text-center py-12 text-oe-muted">
                         <Fingerprint size={28} className="mx-auto mb-2 opacity-20" />
                         <p className="text-sm">No attendance records for this period</p>
                       </td>
                     </tr>
                   ) : (
                     records.map((r, i) => {
-                      const dateStr = r.date ? new Date(r.date).toISOString().split('T')[0] : '';
                       const hasCheckIn = !!r.check_in;
                       const hasCheckOut = !!r.check_out;
                       const missingIO = (hasCheckIn && !hasCheckOut) || (!hasCheckIn && hasCheckOut);
@@ -528,11 +972,12 @@ function AttendanceContent() {
                       if (missingIO) rowBg = 'bg-oe-danger/5 border-l-2 border-oe-danger';
                       else if (isShort || isLate) rowBg = 'bg-oe-warning/5 border-l-2 border-oe-warning';
 
-                      // Device punches for this date
-                      const punches = rawByDate[dateStr] || [];
-
                       return (
-                        <tr key={r.id} className={`border-b border-oe-border/30 hover:bg-oe-bg/50 transition-colors ${rowBg}`}>
+                        <tr
+                          key={r.id}
+                          className={`border-b border-oe-border/30 hover:bg-oe-bg/50 transition-colors cursor-pointer ${rowBg}`}
+                          onClick={() => setSelectedRecord(r)}
+                        >
                           <td className="px-4 py-3 text-oe-muted tabular-nums">{(page - 1) * (data?.limit || 100) + i + 1}</td>
                           <td className="px-4 py-3 text-oe-text font-medium tabular-nums">{fmtDate(r.date)}</td>
                           <td className="px-4 py-3 text-oe-text">{fmtDay(r.date)}</td>
@@ -580,6 +1025,9 @@ function AttendanceContent() {
                             ) : (
                               <span className="text-[11px] text-oe-muted">Manual</span>
                             )}
+                          </td>
+                          <td className="px-3 py-3">
+                            <Info size={13} className="text-oe-muted/50 group-hover:text-oe-primary transition-colors" />
                           </td>
                         </tr>
                       );
@@ -656,13 +1104,13 @@ function AttendanceContent() {
             </details>
           )}
         </>
-      ) : (
+      ) : effectiveViewMode === 'employee' && !loading && !data ? (
         <div className="flex flex-col items-center justify-center h-64 text-oe-muted">
           <AlertCircle size={28} className="mb-2 opacity-30" />
           <p className="text-sm">Failed to load attendance data</p>
           <button onClick={loadSummary} className="mt-2 text-xs text-oe-primary hover:underline">Retry</button>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

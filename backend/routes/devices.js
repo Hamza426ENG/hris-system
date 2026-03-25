@@ -24,6 +24,7 @@ const db = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const { logAction } = require('../utils/auditLogger');
 const zkService = require('../services/zktecoService');
+const { pairPunchesToAttendance } = require('../services/attendanceSyncScheduler');
 
 const ADMIN_ROLES = ['super_admin', 'hr_admin'];
 
@@ -411,7 +412,7 @@ router.post('/:id/sync', async (req, res) => {
       return res.json({ message: 'No logs found on device', synced: 0, raw_inserted: 0 });
     }
 
-    // 2. Optional date filter
+    // 2. Optional date filter (for raw log filtering only)
     const startFilter = req.query.start_date ? new Date(req.query.start_date) : null;
 
     // 3. Load user→employee mappings for this device
@@ -445,8 +446,8 @@ router.post('/:id/sync', async (req, res) => {
       }
     }
 
-    // 5. Pair punches into attendance_records
-    const syncedCount = await pairPunchesToAttendance(device.id, startFilter);
+    // 5. Pair punches into attendance_records (uses punch_state for proper in/out direction)
+    const syncedCount = await pairPunchesToAttendance(device.id);
 
     // 6. Update device sync status
     await updateSyncStatus(device.id, 'success', `Synced ${syncedCount} records from ${rawInserted} new punches`, syncedCount);
@@ -485,13 +486,61 @@ router.post('/:id/sync', async (req, res) => {
   }
 });
 
+/**
+ * GET /devices/:id/diagnose
+ * Pull raw logs from the device and return what fields are present — without
+ * writing anything to the database. Useful for debugging field mapping issues.
+ */
+router.get('/:id/diagnose', async (req, res) => {
+  try {
+    const device = await db.query('SELECT * FROM device_connections WHERE id = $1', [req.params.id]);
+    if (device.rows.length === 0) return res.status(404).json({ error: 'Device not found' });
+
+    const logs = await zkService.getAttendanceLogs(device.rows[0]);
+
+    if (!logs || logs.length === 0) {
+      return res.json({ message: 'No logs returned from device', total: 0, sample: [] });
+    }
+
+    // State distribution
+    const stateDist = logs.reduce((acc, l) => {
+      const s = l.punchState ?? 'null';
+      acc[s] = (acc[s] || 0) + 1;
+      return acc;
+    }, {});
+
+    // Unique users
+    const uniqueUsers = [...new Set(logs.map(l => l.deviceUserId))];
+
+    res.json({
+      total: logs.length,
+      unique_users: uniqueUsers.length,
+      punch_state_distribution: stateDist,
+      punch_state_legend: {
+        0: 'Check In',
+        1: 'Check Out',
+        2: 'Break Out',
+        3: 'Break In',
+        4: 'Overtime In',
+        5: 'Overtime Out',
+        null: 'Unknown (no direction stored)',
+      },
+      date_range: {
+        earliest: logs.reduce((min, l) => l.punchTime < min ? l.punchTime : min, logs[0].punchTime),
+        latest:   logs.reduce((max, l) => l.punchTime > max ? l.punchTime : max, logs[0].punchTime),
+      },
+      sample_records: logs.slice(0, 20),
+    });
+  } catch (err) {
+    console.error('GET /devices/:id/diagnose error:', err);
+    res.status(500).json({ error: 'Diagnose failed', details: err.message });
+  }
+});
+
 // ═════════════════════════════════════════════════════════════════════════════
 // SYNC HELPERS
 // ═════════════════════════════════════════════════════════════════════════════
 
-/**
- * Update the device's sync status.
- */
 async function updateSyncStatus(deviceId, status, message, count) {
   await db.query(
     `UPDATE device_connections
@@ -503,106 +552,6 @@ async function updateSyncStatus(deviceId, status, message, count) {
      WHERE id = $4`,
     [status, message, count, deviceId]
   );
-}
-
-/**
- * Core sync logic: takes unsynced raw punches for a device, groups by employee+date,
- * pairs first punch as check-in and last punch as check-out, then upserts into attendance_records.
- *
- * Pairing logic (auto pair attendance):
- *   - All punches for the same employee on the same date are grouped.
- *   - First punch of the day → check_in
- *   - Last punch of the day  → check_out (if different from check_in)
- *   - work_hours = difference between first and last punch
- *
- * Returns the number of attendance records created/updated.
- */
-async function pairPunchesToAttendance(deviceId, startFilter) {
-  // Get unsynced raw punches that have an employee mapping
-  const conditions = ['r.device_id = $1', 'r.employee_id IS NOT NULL', 'r.synced_to_attendance = FALSE'];
-  const params = [deviceId];
-  let idx = 2;
-  if (startFilter) {
-    conditions.push(`r.punch_time >= $${idx}`);
-    params.push(startFilter);
-    idx++;
-  }
-
-  const rawResult = await db.query(
-    `SELECT r.id, r.employee_id, r.punch_time, r.punch_state, r.device_id
-     FROM device_attendance_raw r
-     WHERE ${conditions.join(' AND ')}
-     ORDER BY r.employee_id, r.punch_time ASC`,
-    params
-  );
-
-  if (rawResult.rows.length === 0) return 0;
-
-  // Group by employee_id + date
-  const groups = new Map(); // key: "employee_id|YYYY-MM-DD"
-  for (const row of rawResult.rows) {
-    const punchDate = new Date(row.punch_time);
-    const dateStr = punchDate.toISOString().split('T')[0];
-    const key = `${row.employee_id}|${dateStr}`;
-    if (!groups.has(key)) {
-      groups.set(key, { employee_id: row.employee_id, date: dateStr, punches: [], rawIds: [] });
-    }
-    const g = groups.get(key);
-    g.punches.push(punchDate);
-    g.rawIds.push(row.id);
-  }
-
-  let synced = 0;
-
-  for (const [, group] of groups) {
-    const { employee_id, date, punches, rawIds } = group;
-
-    // Sort punches chronologically
-    punches.sort((a, b) => a - b);
-
-    const checkIn  = punches[0];
-    const checkOut = punches.length > 1 ? punches[punches.length - 1] : null;
-    const workHours = checkOut
-      ? ((checkOut - checkIn) / 3600000).toFixed(2)
-      : null;
-
-    try {
-      // Upsert into attendance_records
-      await db.query(
-        `INSERT INTO attendance_records
-           (employee_id, date, check_in, check_out, work_hours, status, source, device_id, updated_at)
-         VALUES ($1, $2, $3, $4, $5, 'present', 'device', $6, NOW())
-         ON CONFLICT (employee_id, date)
-         DO UPDATE SET
-           check_in   = LEAST(attendance_records.check_in, EXCLUDED.check_in),
-           check_out  = GREATEST(attendance_records.check_out, EXCLUDED.check_out),
-           work_hours = CASE
-             WHEN EXCLUDED.check_out IS NOT NULL
-             THEN ROUND(EXTRACT(EPOCH FROM (
-               GREATEST(attendance_records.check_out, EXCLUDED.check_out) -
-               LEAST(attendance_records.check_in, EXCLUDED.check_in)
-             )) / 3600, 2)
-             ELSE attendance_records.work_hours
-           END,
-           source     = CASE WHEN attendance_records.source = 'manual' THEN 'manual' ELSE 'device' END,
-           device_id  = COALESCE(attendance_records.device_id, EXCLUDED.device_id),
-           updated_at = NOW()`,
-        [employee_id, date, checkIn, checkOut, workHours, deviceId]
-      );
-
-      // Mark raw punches as synced
-      await db.query(
-        `UPDATE device_attendance_raw SET synced_to_attendance = TRUE WHERE id = ANY($1)`,
-        [rawIds]
-      );
-
-      synced++;
-    } catch (err) {
-      console.warn(`Attendance upsert error for ${employee_id} on ${date}:`, err.message);
-    }
-  }
-
-  return synced;
 }
 
 module.exports = router;
