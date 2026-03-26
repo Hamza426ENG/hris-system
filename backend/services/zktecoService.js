@@ -139,18 +139,86 @@ function parsePunchTime(raw) {
  * We try every known field name and pick whichever is populated.
  */
 async function getAttendanceLogs(device) {
-  const zk = await connect(device);
-  try {
-    const result = await zk.getAttendances();
-    const raw = result?.data || [];
+  // ZKTeco devices near full capacity (>20K logs) often return partial data
+  // on first fetch. Strategy:
+  //   1. Always use a BRAND NEW ZKLib instance per attempt (no cached socket)
+  //   2. Call freeData() before getAttendances() to reset device send buffer
+  //   3. Run up to MAX_ATTEMPTS, keep the best (largest) result
+  //   4. Incremental filtering happens in the caller — we just return the most
+  //      complete snapshot we can get from the device
+  const MAX_ATTEMPTS = 3;
+  let bestRaw = [];
+  let expectedLogs = 0;
 
-    if (raw.length === 0) {
-      console.log(`[ZKTeco] No attendance records returned from ${device.name || device.ip_address}`);
-      return [];
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // Always drop any cached connection and create a fresh instance
+    await disconnect(device);
+
+    // Create a fresh ZKLib instance (not through the cache)
+    const zk = new (require('node-zklib'))(
+      device.ip_address,
+      device.port || 4370,
+      60000,  // connection timeout 60s
+      4000    // inactivity timeout
+    );
+
+    try {
+      await zk.createSocket();
+
+      // Get expected count once (first attempt only)
+      if (attempt === 1) {
+        try {
+          const info = await zk.getInfo();
+          expectedLogs = info?.logCounts || 0;
+        } catch { /* device may not support getInfo */ }
+      }
+
+      // Free the device's send buffer before requesting — this helps when
+      // the device is near capacity and the previous read left state behind
+      try { await zk.freeData(); } catch { /* not all firmware supports this */ }
+
+      const result = await zk.getAttendances();
+      const raw = result?.data || [];
+
+      console.log(`[ZKTeco] ${device.name}: attempt ${attempt}/${MAX_ATTEMPTS} — fetched ${raw.length} records (device reports ${expectedLogs} logs)`);
+
+      if (raw.length > bestRaw.length) {
+        bestRaw = raw;
+      }
+
+      // Accept immediately if we got ≥80% of expected OR if on last attempt
+      if ((expectedLogs > 0 && raw.length >= expectedLogs * 0.8) || attempt === MAX_ATTEMPTS) {
+        if (expectedLogs > 0) {
+          console.log(`[ZKTeco] ${device.name}: accepting ${bestRaw.length}/${expectedLogs} records after attempt ${attempt}`);
+        }
+        try { await zk.disconnect(); } catch { /* ignore */ }
+        break;
+      }
+
+      try { await zk.disconnect(); } catch { /* ignore */ }
+
+      // Short pause before retry so device resets its transfer state
+      await new Promise(r => setTimeout(r, 2000));
+      console.log(`[ZKTeco] ${device.name}: retrying fetch (attempt ${attempt + 1} of ${MAX_ATTEMPTS})...`);
+    } catch (err) {
+      console.warn(`[ZKTeco] ${device.name}: attempt ${attempt} error: ${err.message}`);
+      try { await zk.disconnect(); } catch { /* ignore */ }
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise(r => setTimeout(r, 2000));
+      } else if (bestRaw.length === 0) {
+        throw err;
+      }
     }
+  }
 
-    // Log the first record so we can see the exact field names from this device
-    console.log(`[ZKTeco] ${device.name}: ${raw.length} raw records. Sample:`, JSON.stringify(raw[0]));
+  const raw = bestRaw;
+
+  if (raw.length === 0) {
+    console.log(`[ZKTeco] No attendance records returned from ${device.name || device.ip_address} after ${MAX_ATTEMPTS} attempts`);
+    return [];
+  }
+
+  console.log(`[ZKTeco] ${device.name}: ${raw.length} raw records (best of ${MAX_ATTEMPTS} attempts). Sample:`, JSON.stringify(raw[0]));
 
     const logs = raw
       .map(log => {
@@ -213,10 +281,6 @@ async function getAttendanceLogs(device) {
     }
 
     return logs;
-  } catch (err) {
-    console.error(`[ZKTeco] getAttendanceLogs error for ${device.name}:`, err.message);
-    throw err;
-  }
 }
 
 /**

@@ -5,7 +5,7 @@ import { attendanceAPI, employeesAPI } from '@/services/api';
 import {
   Fingerprint, Clock, LogIn, LogOut, Calendar, TrendingUp,
   Search, Download, ChevronDown, AlertCircle, ChevronLeft,
-  ChevronRight, RefreshCw, X, Info
+  ChevronRight, RefreshCw, X, Info, Pencil, Trash2
 } from 'lucide-react';
 import PrivateRoute from '@/components/auth/PrivateRoute';
 import Layout from '@/components/layout/Layout';
@@ -24,12 +24,15 @@ function fmtTimeShort(iso) {
 
 function fmtDate(d) {
   if (!d) return '';
-  return new Date(d).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+  // For DATE-only strings (YYYY-MM-DD), parse as local time to avoid UTC off-by-one
+  const s = typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d + 'T00:00:00' : d;
+  return new Date(s).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
 }
 
 function fmtDay(d) {
   if (!d) return '';
-  return new Date(d).toLocaleDateString('en-US', { weekday: 'long' });
+  const s = typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d + 'T00:00:00' : d;
+  return new Date(s).toLocaleDateString('en-US', { weekday: 'long' });
 }
 
 function fmtHours(h) {
@@ -70,11 +73,11 @@ function StatCircle({ label, value, sub, color = 'primary' }) {
   };
   return (
     <div className="flex flex-col items-center gap-1.5">
-      <div className={`w-24 h-24 rounded-full border-2 flex flex-col items-center justify-center ${ringColors[color]}`}>
-        <div className={`text-lg font-bold leading-tight ${textColors[color]}`}>{value}</div>
-        {sub && <div className="text-[10px] text-oe-muted mt-0.5">{sub}</div>}
+      <div className={`w-[4.5rem] h-[4.5rem] rounded-full border-[1.5px] flex flex-col items-center justify-center ${ringColors[color]}`}>
+        <div className={`text-sm font-bold leading-tight ${textColors[color]}`}>{value}</div>
+        {sub && <div className="text-[9px] text-oe-muted mt-0.5">{sub}</div>}
       </div>
-      <span className="text-xs text-oe-muted font-medium text-center leading-tight max-w-[100px]">{label}</span>
+      <span className="text-[11px] text-oe-muted font-medium text-center leading-tight max-w-[90px]">{label}</span>
     </div>
   );
 }
@@ -206,7 +209,7 @@ function PeriodSelector({ value, onChange, startDate, endDate, onStartChange, on
 
 // ── Detail Modal ─────────────────────────────────────────────────────────────
 
-function AttendanceDetailModal({ record, punches, onClose }) {
+function AttendanceDetailModal({ record, punches, onClose, showPunches = false }) {
   if (!record) return null;
 
   const workHrs  = parseFloat(record.work_hours || 0);
@@ -224,7 +227,7 @@ function AttendanceDetailModal({ record, punches, onClose }) {
           <div>
             <h2 className="text-base font-bold text-oe-text">Attendance Detail</h2>
             <p className="text-xs text-oe-muted mt-0.5">
-              {new Date(record.date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+              {new Date(typeof record.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(record.date) ? record.date + 'T00:00:00' : record.date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
             </p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-oe-muted hover:text-oe-text hover:bg-oe-bg transition-colors">
@@ -296,8 +299,8 @@ function AttendanceDetailModal({ record, punches, onClose }) {
             )}
           </div>
 
-          {/* Device punch log for this date */}
-          {punches && punches.length > 0 && (
+          {/* Device punch log for this date (HR/super_admin only) */}
+          {showPunches && punches && punches.length > 0 && (
             <div>
               <div className="text-xs font-bold text-oe-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
                 <Fingerprint size={12} className="text-oe-cyan" /> Device Punches ({punches.length})
@@ -338,17 +341,161 @@ function AttendanceDetailModal({ record, punches, onClose }) {
   );
 }
 
+// ── Confirm Dialog (centered alert with yes/no) ─────────────────────────────
+
+function ConfirmDialog({ title, message, onConfirm, onCancel, confirmLabel = 'Confirm', confirmColor = 'bg-oe-danger' }) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onCancel}>
+      <div className="bg-oe-card border border-oe-border rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+        <h3 className="text-lg font-bold text-oe-text mb-2">{title}</h3>
+        <p className="text-sm text-oe-muted mb-6">{message}</p>
+        <div className="flex justify-end gap-3">
+          <button onClick={onCancel} className="px-4 py-2 rounded-lg border border-oe-border text-sm font-medium text-oe-text hover:bg-oe-bg transition-colors">
+            Cancel
+          </button>
+          <button onClick={onConfirm} className={`px-4 py-2 rounded-lg text-sm font-medium text-white ${confirmColor} hover:opacity-90 transition-opacity`}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Edit Attendance Modal ────────────────────────────────────────────────────
+
+function EditAttendanceModal({ record, onSave, onClose }) {
+  const [checkIn, setCheckIn] = useState('');
+  const [checkOut, setCheckOut] = useState('');
+  const [status, setStatus] = useState('present');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  useEffect(() => {
+    if (record) {
+      setCheckIn(record.check_in ? new Date(record.check_in).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : '');
+      setCheckOut(record.check_out ? new Date(record.check_out).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : '');
+      setStatus(record.status || 'present');
+      setNotes(record.notes || '');
+      setError('');
+    }
+  }, [record]);
+
+  if (!record) return null;
+
+  const handleSubmit = () => setShowConfirm(true);
+
+  const handleConfirmedSave = async () => {
+    setShowConfirm(false);
+    setSaving(true);
+    setError('');
+    try {
+      const body = { status, notes: notes || undefined };
+      if (checkIn) body.check_in_time = checkIn;
+      else body.check_in_time = null;
+      if (checkOut) body.check_out_time = checkOut;
+      else body.check_out_time = null;
+
+      await attendanceAPI.update(record.id, body);
+      onSave();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to update record');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-oe-card border border-oe-border rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-oe-border/50">
+          <h3 className="font-bold text-oe-text flex items-center gap-2">
+            <Pencil size={16} className="text-oe-primary" /> Edit Attendance
+          </h3>
+          <button onClick={onClose} className="text-oe-muted hover:text-oe-text transition-colors"><X size={18} /></button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          <div className="bg-oe-bg rounded-lg px-3 py-2 text-sm text-oe-muted">
+            {record.first_name} {record.last_name} — {fmtDate(record.date)} ({fmtDay(record.date)})
+          </div>
+
+          {error && <div className="text-sm text-oe-danger bg-oe-danger/10 border border-oe-danger/20 rounded-lg px-3 py-2">{error}</div>}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-oe-muted uppercase tracking-wide mb-1">Check In</label>
+              <input type="time" value={checkIn} onChange={e => setCheckIn(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-sm text-oe-text focus:border-oe-primary outline-none" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-oe-muted uppercase tracking-wide mb-1">Check Out</label>
+              <input type="time" value={checkOut} onChange={e => setCheckOut(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-sm text-oe-text focus:border-oe-primary outline-none" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-oe-muted uppercase tracking-wide mb-1">Status</label>
+            <select value={status} onChange={e => setStatus(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-sm text-oe-text focus:border-oe-primary outline-none">
+              <option value="present">Present</option>
+              <option value="absent">Absent</option>
+              <option value="leave">Leave</option>
+              <option value="half_day">Half Day</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-oe-muted uppercase tracking-wide mb-1">Notes</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Optional note..."
+              className="w-full px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-sm text-oe-text focus:border-oe-primary outline-none resize-none" />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 px-5 py-4 border-t border-oe-border/50">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-oe-border text-sm font-medium text-oe-text hover:bg-oe-bg transition-colors">
+            Cancel
+          </button>
+          <button onClick={handleSubmit} disabled={saving}
+            className="px-4 py-2 rounded-lg bg-oe-primary text-sm font-medium text-white hover:opacity-90 transition-opacity disabled:opacity-50">
+            {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+
+      {showConfirm && (
+        <ConfirmDialog
+          title="Confirm Edit"
+          message="Are you sure you want to update this attendance record? This action will be logged."
+          confirmLabel="Yes, Update"
+          confirmColor="bg-oe-primary"
+          onConfirm={handleConfirmedSave}
+          onCancel={() => setShowConfirm(false)}
+        />
+      )}
+    </div>
+  );
+}
+
 // ── All-Records View (Admin/HR) ───────────────────────────────────────────────
 
-function AllRecordsView() {
+const todayStr = () => new Date().toISOString().split('T')[0];
+
+function AllRecordsView({ refreshTrigger }) {
   const [records, setRecords]         = useState([]);
   const [total, setTotal]             = useState(0);
   const [loading, setLoading]         = useState(true);
   const [page, setPage]               = useState(1);
   const [search, setSearch]           = useState('');
   const [statusFilter, setStatus]     = useState('');
-  const [startDate, setStart]         = useState('');
-  const [endDate, setEnd]             = useState('');
+  const [sourceFilter, setSource]     = useState('');
+  const [flagFilter, setFlag]         = useState(''); // 'late'|'short'|'missing_io'
+  const [startDate, setStart]         = useState(() => { const d = new Date(); d.setDate(d.getDate() - 6); return d.toISOString().split('T')[0]; });
+  const [endDate, setEnd]             = useState(todayStr());
+  const [quickFilter, setQuickFilter] = useState('week'); // 'today'|'week'|'month'|'all'
   const [selectedRecord, setSelected] = useState(null);
   const limit = 50;
 
@@ -356,10 +503,12 @@ function AllRecordsView() {
     setLoading(true);
     try {
       const params = { page, limit, sort_by: 'date', sort_order: 'desc' };
-      if (search)      params.search     = search;
-      if (statusFilter) params.status    = statusFilter;
-      if (startDate)   params.start_date = startDate;
-      if (endDate)     params.end_date   = endDate;
+      if (search)       params.search     = search;
+      if (statusFilter) params.status     = statusFilter;
+      if (sourceFilter) params.source     = sourceFilter;
+      if (flagFilter)   params.flag       = flagFilter;
+      if (startDate)    params.start_date = startDate;
+      if (endDate)      params.end_date   = endDate;
       const res = await attendanceAPI.listAll(params);
       setRecords(res.data?.records || []);
       setTotal(res.data?.total || 0);
@@ -368,12 +517,38 @@ function AllRecordsView() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, statusFilter, startDate, endDate]);
+  }, [page, search, statusFilter, sourceFilter, flagFilter, startDate, endDate]);
 
   useEffect(() => { load(); }, [load]);
 
+  // Re-fetch when parent triggers (SSE update or sync)
+  useEffect(() => { if (refreshTrigger > 0) load(); }, [refreshTrigger]); // eslint-disable-line
+
+  // Auto-refresh every 5 minutes to catch new device punches
+  useEffect(() => {
+    const t = setInterval(load, 5 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [load]);
+
   // Reset page when filters change
-  useEffect(() => { setPage(1); }, [search, statusFilter, startDate, endDate]);
+  useEffect(() => { setPage(1); }, [search, statusFilter, sourceFilter, flagFilter, startDate, endDate]);
+
+  // Apply quick filter preset
+  const applyQuickFilter = useCallback((preset) => {
+    const today = todayStr();
+    setQuickFilter(preset);
+    if (preset === 'today') {
+      setStart(today); setEnd(today);
+    } else if (preset === 'week') {
+      const d = new Date(); d.setDate(d.getDate() - 6);
+      setStart(d.toISOString().split('T')[0]); setEnd(today);
+    } else if (preset === 'month') {
+      const d = new Date(); d.setDate(1);
+      setStart(d.toISOString().split('T')[0]); setEnd(today);
+    } else {
+      setStart(''); setEnd('');
+    }
+  }, []);
 
   const totalPages = Math.ceil(total / limit);
 
@@ -408,12 +583,37 @@ function AllRecordsView() {
           record={selectedRecord}
           punches={null}
           onClose={() => setSelected(null)}
+          showPunches={true}
         />
       )}
       {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-4 py-3 border-b border-oe-border/50 gap-3 flex-wrap">
-        <div className="flex items-center gap-2 flex-1 min-w-[200px] max-w-sm">
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-oe-bg border border-oe-border flex-1">
+      <div className="flex flex-col gap-2 px-4 py-3 border-b border-oe-border/50">
+        {/* Row 1: quick filters + refresh + export */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          {/* Quick date filters */}
+          <div className="flex items-center rounded-xl border border-oe-border bg-oe-surface overflow-hidden text-xs font-semibold">
+            {[['today','Today'],['week','Last 7 Days'],['month','This Month'],['all','All Time']].map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => applyQuickFilter(key)}
+                className={`px-3 py-2 transition-colors ${quickFilter === key ? 'bg-oe-primary text-white' : 'text-oe-muted hover:text-oe-text hover:bg-oe-bg'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={exportCSV}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-oe-border text-xs font-medium text-oe-text hover:bg-oe-bg transition-colors"
+            >
+              <Download size={13} /> Export CSV
+            </button>
+          </div>
+        </div>
+        {/* Row 2: search + filters + custom dates */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-oe-bg border border-oe-border flex-1 min-w-[160px] max-w-xs">
             <Search size={14} className="text-oe-muted" />
             <input
               value={search}
@@ -422,58 +622,69 @@ function AllRecordsView() {
               className="bg-transparent text-sm text-oe-text outline-none flex-1"
             />
           </div>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
           <select
             value={statusFilter}
             onChange={e => setStatus(e.target.value)}
-            className="px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-sm text-oe-text focus:border-oe-primary outline-none"
+            className="px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-xs text-oe-text focus:border-oe-primary outline-none"
           >
             <option value="">All Status</option>
             <option value="present">Present</option>
             <option value="absent">Absent</option>
-            <option value="leave">Leave</option>
+            <option value="leave">On Leave</option>
+          </select>
+          <select
+            value={sourceFilter}
+            onChange={e => setSource(e.target.value)}
+            className="px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-xs text-oe-text focus:border-oe-primary outline-none"
+          >
+            <option value="">All Sources</option>
+            <option value="manual">Manual</option>
+            <option value="device">Biometric</option>
+          </select>
+          <select
+            value={flagFilter}
+            onChange={e => setFlag(e.target.value)}
+            className="px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-xs text-oe-text focus:border-oe-primary outline-none"
+          >
+            <option value="">All Records</option>
+            <option value="late">Late Arrivals</option>
+            <option value="short">Short Hours (&lt;8h)</option>
+            <option value="missing_io">Missing I/O</option>
+            <option value="overtime">Overtime (&gt;8h)</option>
           </select>
           <input
-            type="date" value={startDate} onChange={e => setStart(e.target.value)}
+            type="date" value={startDate}
+            onChange={e => { setStart(e.target.value); setQuickFilter(''); }}
             className="px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-sm text-oe-text focus:border-oe-primary outline-none"
             title="From date"
           />
           <input
-            type="date" value={endDate} onChange={e => setEnd(e.target.value)}
+            type="date" value={endDate}
+            onChange={e => { setEnd(e.target.value); setQuickFilter(''); }}
             className="px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-sm text-oe-text focus:border-oe-primary outline-none"
             title="To date"
           />
-          <button
-            onClick={load}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-oe-border text-xs font-medium text-oe-text hover:bg-oe-bg transition-colors"
-          >
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
-          </button>
-          <button
-            onClick={exportCSV}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-oe-border text-xs font-medium text-oe-text hover:bg-oe-bg transition-colors"
-          >
-            <Download size={13} /> Export CSV
-          </button>
+          <span className="text-xs text-oe-muted">
+            {total > 0 ? `${total.toLocaleString()} records` : ''}
+          </span>
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto">
+      {/* Desktop Table */}
+      <div className="overflow-x-auto hidden md:block">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-gradient-to-r from-oe-primary to-oe-primary/80 text-white">
-              <th className="px-4 py-3 text-left font-semibold text-xs w-12">Sr #</th>
-              <th className="px-4 py-3 text-left font-semibold text-xs">Date</th>
-              <th className="px-4 py-3 text-left font-semibold text-xs">Employee</th>
-              <th className="px-4 py-3 text-left font-semibold text-xs">Emp Code</th>
-              <th className="px-4 py-3 text-left font-semibold text-xs">Department</th>
-              <th className="px-4 py-3 text-left font-semibold text-xs">Check In</th>
-              <th className="px-4 py-3 text-left font-semibold text-xs">Check Out</th>
-              <th className="px-4 py-3 text-left font-semibold text-xs">Work Hours</th>
-              <th className="px-4 py-3 text-left font-semibold text-xs">Status</th>
-              <th className="px-4 py-3 text-left font-semibold text-xs">Source</th>
+            <tr className="bg-oe-surface/80">
+              <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide w-12">Sr #</th>
+              <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Date</th>
+              <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Employee</th>
+              <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Emp Code</th>
+              <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Department</th>
+              <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Check In</th>
+              <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Check Out</th>
+              <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Work Hours</th>
+              <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Status</th>
+              <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Source</th>
             </tr>
           </thead>
           <tbody>
@@ -562,6 +773,65 @@ function AllRecordsView() {
         </table>
       </div>
 
+      {/* Mobile Cards */}
+      <div className="md:hidden divide-y divide-oe-border/30">
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="w-6 h-6 border-2 border-oe-primary border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : records.length === 0 ? (
+          <div className="text-center py-12 text-oe-muted text-sm">No records found</div>
+        ) : (
+          records.map((r, i) => {
+            const hasCheckIn = !!r.check_in;
+            const hasCheckOut = !!r.check_out;
+            const workHrs = parseFloat(r.work_hours || 0);
+            const missingIO = (hasCheckIn && !hasCheckOut) || (!hasCheckIn && hasCheckOut);
+            return (
+              <div key={r.id} className={`p-4 ${missingIO ? 'bg-oe-danger/5 border-l-2 border-oe-danger' : ''}`} onClick={() => setSelected(r)}>
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <div className="text-sm font-semibold text-oe-text">{r.first_name} {r.last_name}</div>
+                    <div className="text-xs text-oe-muted">{r.emp_code} · {r.department_name || '—'}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs font-medium text-oe-text">{fmtDate(r.date)}</div>
+                    <div className="text-[11px] text-oe-muted">{fmtDay(r.date)}</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <div className="text-[10px] text-oe-muted">In</div>
+                    <div className={`text-xs font-medium ${hasCheckIn ? 'text-oe-success' : 'text-oe-danger'}`}>
+                      {hasCheckIn ? fmtTimeShort(r.check_in) : 'Missing'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-oe-muted">Out</div>
+                    <div className={`text-xs font-medium ${hasCheckOut ? 'text-oe-text' : 'text-oe-warning'}`}>
+                      {hasCheckOut ? fmtTimeShort(r.check_out) : hasCheckIn ? 'Not out' : '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-oe-muted">Hours</div>
+                    <div className="text-xs font-medium text-oe-text">{workHrs > 0 ? fmtHours(workHrs) : '—'}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                    r.status === 'present' ? 'bg-oe-success/10 text-oe-success' :
+                    r.status === 'absent' ? 'bg-oe-danger/10 text-oe-danger' : 'bg-oe-surface text-oe-muted'
+                  }`}>{r.status || '—'}</span>
+                  {r.source === 'device' && (
+                    <span className="text-[10px] text-oe-cyan flex items-center gap-1"><Fingerprint size={10} /> Device</span>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-4 py-3 border-t border-oe-border/50">
@@ -591,10 +861,16 @@ function AttendanceContent() {
   const { user } = useAuth();
   const router = useRouter();
 
+  const [syncStatus, setSyncStatus]   = useState(null);   // { devices, intervalMinutes }
+  const [syncing, setSyncing]         = useState(false);
+  const [syncMsg, setSyncMsg]         = useState(null);   // { type: 'success'|'error', text }
+  const [allRefreshTick, setAllRefreshTick] = useState(0); // bumped to force AllRecordsView reload
+
   const [employeeId, setEmployeeId] = useState(null);
   const [employees, setEmployees]   = useState([]);
   const [empLoading, setEmpLoading] = useState(false);
   const [data, setData]             = useState(null);
+  const [loadError, setLoadError]   = useState(false);
   const [loading, setLoading]       = useState(true);
   const [period, setPeriod]         = useState('all_time');
   const [startDate, setStartDate]   = useState('');
@@ -603,6 +879,9 @@ function AttendanceContent() {
   const [page, setPage]             = useState(1);
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [viewMode, setViewMode]     = useState('all'); // 'all' | 'employee'
+  const [editRecord, setEditRecord]         = useState(null);   // record being edited
+  const [deleteRecord, setDeleteRecord]     = useState(null);   // record pending delete confirmation
+  const [deleting, setDeleting]             = useState(false);
 
   const isHRAdmin = ['super_admin', 'hr_admin'].includes(user?.role);
   const isLead    = ['super_admin', 'hr_admin', 'manager', 'team_lead'].includes(user?.role);
@@ -629,10 +908,65 @@ function AttendanceContent() {
       .finally(() => setEmpLoading(false));
   }, [canSelectEmployee]);
 
+  // Load sync status (all roles — everyone sees last-synced time)
+  const loadSyncStatus = useCallback(() => {
+    attendanceAPI.syncStatus()
+      .then(res => setSyncStatus(res.data))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    loadSyncStatus();
+    const t = setInterval(loadSyncStatus, 60_000);
+    return () => clearInterval(t);
+  }, [loadSyncStatus]);
+
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      await attendanceAPI.syncNow();
+      setSyncMsg({ type: 'success', text: 'Sync started — data will update in a few seconds.' });
+      // Wait 8s then reload
+      setTimeout(() => {
+        loadSummary();
+        setAllRefreshTick(n => n + 1);
+        loadSyncStatus();
+        setSyncMsg(null);
+      }, 8000);
+    } catch (err) {
+      setSyncMsg({ type: 'error', text: err.response?.data?.error || 'Sync failed' });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleDeleteConfirmed = async () => {
+    if (!deleteRecord) return;
+    setDeleting(true);
+    try {
+      await attendanceAPI.delete(deleteRecord.id);
+      setDeleteRecord(null);
+      loadSummary();
+      setAllRefreshTick(n => n + 1);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to delete record');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleEditSaved = () => {
+    setEditRecord(null);
+    loadSummary();
+    setAllRefreshTick(n => n + 1);
+  };
+
   // Load attendance summary
   const loadSummary = useCallback(async () => {
     if (!employeeId) { setLoading(false); return; }
     setLoading(true);
+    setLoadError(false);
     try {
       const params = { period, page, limit: 500 };
       if (period === 'custom') {
@@ -644,6 +978,7 @@ function AttendanceContent() {
     } catch (err) {
       console.error('Failed to load attendance summary:', err);
       setData(null);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -652,6 +987,27 @@ function AttendanceContent() {
   useEffect(() => {
     loadSummary();
   }, [loadSummary]);
+
+  // ── SSE: auto-update when device sync pushes new records ─────────────────
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const token = localStorage.getItem('hris_token');
+    if (!token) return;
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
+    const es = new EventSource(`${API_URL}/attendance/stream?token=${encodeURIComponent(token)}`);
+    es.onmessage = (e) => {
+      if (e.data === 'connected') return;
+      try {
+        const msg = JSON.parse(e.data);
+        if (effectiveViewMode === 'employee' && msg.employeeId === employeeId) {
+          loadSummary();
+        }
+        setAllRefreshTick(n => n + 1);
+      } catch {}
+    };
+    es.onerror = () => es.close();
+    return () => es.close();
+  }, [effectiveViewMode, employeeId, loadSummary]); // eslint-disable-line
 
   // Export to CSV
   const exportCSV = () => {
@@ -712,6 +1068,7 @@ function AttendanceContent() {
           record={selectedRecord}
           punches={rawByDate[selectedRecord.date ? new Date(selectedRecord.date).toISOString().split('T')[0] : '']}
           onClose={() => setSelectedRecord(null)}
+          showPunches={isHRAdmin}
         />
       )}
 
@@ -776,9 +1133,56 @@ function AttendanceContent() {
         </div>
       </div>
 
+      {/* ── Sync Status Bar — super_admin only ──────────────────────── */}
+      {user?.role === 'super_admin' && syncStatus?.devices?.length > 0 && (() => {
+        const dev = syncStatus.devices[0];
+        const lastSync = dev.last_sync_at ? new Date(dev.last_sync_at) : null;
+        const minsAgo  = lastSync ? Math.round((Date.now() - lastSync) / 60000) : null;
+        const isOk     = dev.last_sync_status === 'success';
+        return (
+          <div className={`flex items-center justify-between px-4 py-2.5 rounded-xl text-xs border ${
+            isOk ? 'bg-oe-success/5 border-oe-success/20 text-oe-success'
+                 : 'bg-oe-warning/5 border-oe-warning/20 text-oe-warning'
+          }`}>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`w-2 h-2 rounded-full ${isOk ? 'bg-oe-success' : 'bg-oe-warning'} ${minsAgo !== null && minsAgo < 10 ? 'animate-pulse' : ''}`} />
+              <span className="font-medium">{dev.name}</span>
+              <span className="text-oe-muted">·</span>
+              {lastSync ? (
+                <span className="text-oe-muted">
+                  Last synced {minsAgo === 0 ? 'just now' : `${minsAgo} min ago`}
+                  {' '}({lastSync.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })})
+                  {' · '}{Number(dev.total_synced || 0).toLocaleString()} total records
+                </span>
+              ) : (
+                <span className="text-oe-muted">Never synced</span>
+              )}
+              <span className="text-oe-muted">· auto every {syncStatus.intervalMinutes} min</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {syncMsg && (
+                <span className={`text-xs font-medium ${syncMsg.type === 'success' ? 'text-oe-success' : 'text-oe-danger'}`}>
+                  {syncMsg.text}
+                </span>
+              )}
+              {user?.role === 'super_admin' && (
+                <button
+                  onClick={handleSyncNow}
+                  disabled={syncing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-oe-primary text-white text-xs font-semibold hover:bg-oe-primary/90 disabled:opacity-60 transition-colors"
+                >
+                  <RefreshCw size={11} className={syncing ? 'animate-spin' : ''} />
+                  {syncing ? 'Syncing…' : 'Sync Now'}
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── All Records View (Admin/HR default) ──────────────────────── */}
       {effectiveViewMode === 'all' && (
-        <AllRecordsView />
+        <AllRecordsView refreshTrigger={allRefreshTick} />
       )}
 
       {/* ── Employee Summary View ──────────────────────────────────── */}
@@ -791,101 +1195,81 @@ function AttendanceContent() {
           <Fingerprint size={40} className="mb-3 opacity-30" />
           <p className="text-sm">Select an employee to view their attendance</p>
         </div>
+      ) : effectiveViewMode === 'employee' && loadError ? (
+        <div className="flex flex-col items-center justify-center h-64 text-oe-muted gap-3">
+          <AlertCircle size={36} className="opacity-40 text-oe-danger" />
+          <p className="text-sm">Failed to load attendance data</p>
+          <button onClick={loadSummary} className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-oe-border text-xs font-medium text-oe-text hover:bg-oe-bg transition-colors">
+            <RefreshCw size={13} /> Retry
+          </button>
+        </div>
       ) : effectiveViewMode === 'employee' && data ? (
         <>
-          {/* ── Summary Cards ────────────────────────────────────────── */}
-          <div className="card p-5">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 divide-x divide-oe-border/40">
+          {/* ── Summary Cards ───────────────────────────────────────── */}
+          <div className="card p-4 sm:p-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 sm:gap-6">
               {/* Last Working Day */}
-              <div className="flex flex-col gap-3">
-                <h3 className="text-xs font-bold text-oe-muted uppercase tracking-wider">
+              <div>
+                <h3 className="text-[11px] font-bold text-oe-muted uppercase tracking-wider mb-3">
                   Last Working Day {data.lastWorkingDay ? `(${fmtDate(data.lastWorkingDay.date)})` : ''}
                 </h3>
-                <div className="flex items-center gap-4 flex-wrap">
-                  <StatCircle label="Last Check-In" value={data.lastWorkingDay ? fmtTimeShort(data.lastWorkingDay.checkIn) : 'N/A'} color="success" />
-                  <StatCircle label="Last Check-Out" value={data.lastWorkingDay?.checkOut ? fmtTimeShort(data.lastWorkingDay.checkOut) : 'N/A'} color="danger" />
-                  <StatCircle label="Total Hours" value={data.lastWorkingDay?.totalHours ? fmtHours(data.lastWorkingDay.totalHours) : 'N/A'} color="primary" />
+                <div className="flex items-center gap-3 flex-wrap">
+                  <StatCircle label="Check-In" value={data.lastWorkingDay ? fmtTimeShort(data.lastWorkingDay.checkIn) : 'N/A'} color="success" />
+                  <StatCircle label="Check-Out" value={data.lastWorkingDay?.checkOut ? fmtTimeShort(data.lastWorkingDay.checkOut) : 'N/A'} color="danger" />
+                  <StatCircle label="Hours" value={data.lastWorkingDay?.totalHours ? fmtHours(data.lastWorkingDay.totalHours) : 'N/A'} color="primary" />
                 </div>
               </div>
 
               {/* Last 30 Days */}
-              <div className="flex flex-col gap-3 pl-6">
-                <h3 className="text-xs font-bold text-oe-muted uppercase tracking-wider">Last 30 Days</h3>
-                <div className="flex items-center gap-4 flex-wrap">
-                  <StatCircle label="Avg. Check-In" value={data.last30Days?.avgCheckIn || 'N/A'} color="cyan" />
-                  <StatCircle label="Avg. Check-Out" value={data.last30Days?.avgCheckOut || 'N/A'} color="purple" />
-                  <StatCircle label="Avg. Working Hrs" value={data.last30Days?.avgWorkHours || 'N/A'} color="primary" />
+              <div>
+                <h3 className="text-[11px] font-bold text-oe-muted uppercase tracking-wider mb-3">Last 30 Days</h3>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <StatCircle label="Avg In" value={data.last30Days?.avgCheckIn || 'N/A'} color="cyan" />
+                  <StatCircle label="Avg Out" value={data.last30Days?.avgCheckOut || 'N/A'} color="purple" />
+                  <StatCircle label="Avg Hrs" value={data.last30Days?.avgWorkHours || 'N/A'} color="primary" />
                 </div>
               </div>
 
               {/* Month to Date */}
-              <div className="flex flex-col gap-3 pl-6">
-                <h3 className="text-xs font-bold text-oe-muted uppercase tracking-wider">Month to Date</h3>
-                <div className="flex items-center gap-4 flex-wrap">
+              <div>
+                <h3 className="text-[11px] font-bold text-oe-muted uppercase tracking-wider mb-3">Month to Date</h3>
+                <div className="flex items-center gap-3 flex-wrap">
                   <StatCircle label="Leaves" value={data.monthToDate?.leaves ?? 0} color="warning" />
                   <StatCircle label="Absents" value={data.monthToDate?.absents ?? 0} color="danger" />
-                  <StatCircle label="Avg. Working Hrs" value={data.monthToDate?.avgWorkHours || 'N/A'} color="success" />
+                  <StatCircle label="Avg Hrs" value={data.monthToDate?.avgWorkHours || 'N/A'} color="success" />
                 </div>
               </div>
 
               {/* Hours Percentage */}
-              <div className="flex flex-col gap-3 pl-6">
-                <h3 className="text-xs font-bold text-oe-muted uppercase tracking-wider">Hours Percentage</h3>
-                <div className="flex items-center gap-4 flex-wrap">
-                  <StatCircle label="Work from Home" value={`${data.hoursPercentage?.wfh || 0}%`} color="purple" />
-                  <StatCircle label="Work from Office" value={`${data.hoursPercentage?.wfo || 0}%`} color="cyan" />
+              <div>
+                <h3 className="text-[11px] font-bold text-oe-muted uppercase tracking-wider mb-3">Hours %</h3>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <StatCircle label="WFH" value={`${data.hoursPercentage?.wfh || 0}%`} color="purple" />
+                  <StatCircle label="WFO" value={`${data.hoursPercentage?.wfo || 0}%`} color="cyan" />
                 </div>
               </div>
             </div>
           </div>
 
-          {/* ── Period Stats Row ──────────────────────────────────────── */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <div className="card py-3 px-4 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-oe-success/10 flex items-center justify-center">
-                <LogIn size={16} className="text-oe-success" />
+          {/* ── Period Stats Row ──────────────────────────────────── */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+            {[
+              { icon: LogIn, label: 'Avg Check-In', value: data.periodStats?.avgCheckIn || 'N/A', color: 'bg-oe-success/10', text: 'text-oe-success' },
+              { icon: LogOut, label: 'Avg Check-Out', value: data.periodStats?.avgCheckOut || 'N/A', color: 'bg-oe-danger/10', text: 'text-oe-danger' },
+              { icon: Clock, label: 'Avg Hrs/Day', value: data.periodStats?.avgWorkHours || 'N/A', color: 'bg-oe-primary/10', text: 'text-oe-primary' },
+              { icon: TrendingUp, label: 'Total Hours', value: data.periodStats?.totalHours || 0, color: 'bg-oe-purple/10', text: 'text-oe-purple' },
+              { icon: Calendar, label: 'Present Days', value: data.periodStats?.presentDays || 0, color: 'bg-oe-cyan/10', text: 'text-oe-cyan' },
+            ].map(({ icon: Icon, label, value: v, color, text }) => (
+              <div key={label} className="card py-3 px-3.5 flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-lg ${color} flex items-center justify-center flex-shrink-0`}>
+                  <Icon size={16} className={text} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-base font-bold text-oe-text leading-none">{v}</div>
+                  <div className="text-[11px] text-oe-muted mt-0.5 truncate">{label}</div>
+                </div>
               </div>
-              <div>
-                <div className="text-lg font-bold text-oe-text">{data.periodStats?.avgCheckIn || 'N/A'}</div>
-                <div className="text-[11px] text-oe-muted">Avg Check-In</div>
-              </div>
-            </div>
-            <div className="card py-3 px-4 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-oe-danger/10 flex items-center justify-center">
-                <LogOut size={16} className="text-oe-danger" />
-              </div>
-              <div>
-                <div className="text-lg font-bold text-oe-text">{data.periodStats?.avgCheckOut || 'N/A'}</div>
-                <div className="text-[11px] text-oe-muted">Avg Check-Out</div>
-              </div>
-            </div>
-            <div className="card py-3 px-4 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-oe-primary/10 flex items-center justify-center">
-                <Clock size={16} className="text-oe-primary" />
-              </div>
-              <div>
-                <div className="text-lg font-bold text-oe-text">{data.periodStats?.avgWorkHours || 'N/A'}</div>
-                <div className="text-[11px] text-oe-muted">Avg Hours/Day</div>
-              </div>
-            </div>
-            <div className="card py-3 px-4 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-oe-purple/10 flex items-center justify-center">
-                <TrendingUp size={16} className="text-oe-purple" />
-              </div>
-              <div>
-                <div className="text-lg font-bold text-oe-text">{data.periodStats?.totalHours || 0}</div>
-                <div className="text-[11px] text-oe-muted">Total Hours</div>
-              </div>
-            </div>
-            <div className="card py-3 px-4 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-oe-cyan/10 flex items-center justify-center">
-                <Calendar size={16} className="text-oe-cyan" />
-              </div>
-              <div>
-                <div className="text-lg font-bold text-oe-text">{data.periodStats?.presentDays || 0}</div>
-                <div className="text-[11px] text-oe-muted">Present Days</div>
-              </div>
-            </div>
+            ))}
           </div>
 
           {/* ── Table Section ────────────────────────────────────────── */}
@@ -913,16 +1297,6 @@ function AttendanceContent() {
                   <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-oe-danger" /> Missing I/O</span>
                 </div>
 
-                {user?.role === 'super_admin' && (
-                  <button
-                    onClick={loadSummary}
-                    disabled={loading}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-oe-border text-xs font-medium text-oe-text hover:bg-oe-bg transition-colors"
-                    title="Refresh data"
-                  >
-                    <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
-                  </button>
-                )}
                 <button
                   onClick={exportCSV}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-oe-border text-xs font-medium text-oe-text hover:bg-oe-bg transition-colors"
@@ -936,23 +1310,24 @@ function AttendanceContent() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-gradient-to-r from-oe-primary to-oe-primary/80 text-white">
-                    <th className="px-4 py-3 text-left font-semibold text-xs w-14">Sr #</th>
-                    <th className="px-4 py-3 text-left font-semibold text-xs">Date</th>
-                    <th className="px-4 py-3 text-left font-semibold text-xs">Day</th>
-                    <th className="px-4 py-3 text-left font-semibold text-xs">Check In</th>
-                    <th className="px-4 py-3 text-left font-semibold text-xs">Check Out</th>
-                    <th className="px-4 py-3 text-left font-semibold text-xs">Actual Hours</th>
-                    <th className="px-4 py-3 text-left font-semibold text-xs">Salary Hours</th>
-                    <th className="px-4 py-3 text-left font-semibold text-xs">Status</th>
-                    <th className="px-4 py-3 text-left font-semibold text-xs">Source</th>
-                    <th className="px-4 py-3 text-left font-semibold text-xs w-8"></th>
+                  <tr className="bg-oe-surface/80">
+                    <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide w-14">Sr #</th>
+                    <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Date</th>
+                    <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Day</th>
+                    <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Check In</th>
+                    <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Check Out</th>
+                    <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Actual Hours</th>
+                    <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Salary Hours</th>
+                    <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Status</th>
+                    <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Source</th>
+                    {isHRAdmin && <th className="px-4 py-2.5 text-center font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Actions</th>}
+                    <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide w-8"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {records.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="text-center py-12 text-oe-muted">
+                      <td colSpan={isHRAdmin ? 11 : 10} className="text-center py-12 text-oe-muted">
                         <Fingerprint size={28} className="mx-auto mb-2 opacity-20" />
                         <p className="text-sm">No attendance records for this period</p>
                       </td>
@@ -1026,6 +1401,26 @@ function AttendanceContent() {
                               <span className="text-[11px] text-oe-muted">Manual</span>
                             )}
                           </td>
+                          {isHRAdmin && (
+                            <td className="px-3 py-3">
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  title="Edit"
+                                  onClick={e => { e.stopPropagation(); setEditRecord(r); }}
+                                  className="p-1.5 rounded-lg hover:bg-oe-primary/10 text-oe-muted hover:text-oe-primary transition-colors"
+                                >
+                                  <Pencil size={13} />
+                                </button>
+                                <button
+                                  title="Delete"
+                                  onClick={e => { e.stopPropagation(); setDeleteRecord(r); }}
+                                  className="p-1.5 rounded-lg hover:bg-oe-danger/10 text-oe-muted hover:text-oe-danger transition-colors"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </td>
+                          )}
                           <td className="px-3 py-3">
                             <Info size={13} className="text-oe-muted/50 group-hover:text-oe-primary transition-colors" />
                           </td>
@@ -1064,8 +1459,8 @@ function AttendanceContent() {
             )}
           </div>
 
-          {/* ── Raw Device Punches (expandable detail) ───────────────── */}
-          {data.rawPunches?.length > 0 && (
+          {/* ── Raw Device Punches (expandable detail — HR/super_admin only) ── */}
+          {isHRAdmin && data.rawPunches?.length > 0 && (
             <details className="card p-0 overflow-hidden">
               <summary className="px-4 py-3 cursor-pointer hover:bg-oe-bg transition-colors flex items-center gap-2 text-sm font-semibold text-oe-text">
                 <Fingerprint size={15} className="text-oe-cyan" />
@@ -1111,6 +1506,25 @@ function AttendanceContent() {
           <button onClick={loadSummary} className="mt-2 text-xs text-oe-primary hover:underline">Retry</button>
         </div>
       ) : null}
+
+      {/* ── Edit / Delete modals (HR & super_admin only) ──────────────── */}
+      {isHRAdmin && editRecord && (
+        <EditAttendanceModal
+          record={editRecord}
+          onSave={handleEditSaved}
+          onClose={() => setEditRecord(null)}
+        />
+      )}
+      {isHRAdmin && deleteRecord && (
+        <ConfirmDialog
+          title="Delete Attendance Record"
+          message={`Are you sure you want to delete the attendance record for ${fmtDate(deleteRecord.date)}? This action cannot be undone.`}
+          confirmLabel={deleting ? 'Deleting...' : 'Yes, Delete'}
+          confirmColor="bg-oe-danger"
+          onConfirm={handleDeleteConfirmed}
+          onCancel={() => setDeleteRecord(null)}
+        />
+      )}
     </div>
   );
 }

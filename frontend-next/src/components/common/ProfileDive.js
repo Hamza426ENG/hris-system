@@ -6,7 +6,7 @@ import {
   LogIn, LogOut, Calendar, User, Building2,
   CheckCircle2, Briefcase, TrendingUp, ChevronRight,
   RotateCcw, Hash, Fingerprint, Clock,
-  ClipboardList, TicketCheck, Mail
+  ClipboardList, TicketCheck, Mail, Shield
 } from 'lucide-react';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -233,10 +233,15 @@ export default function ProfileDive({ stats, recentLeaves, myTicketCount }) {
                 <div className="min-w-0 flex-1">
                   <div className="text-white/60 text-[11px] font-medium tracking-wide">{greeting()}</div>
                   <div className="text-white font-bold text-lg leading-tight mt-0.5 break-words">{fullName}</div>
-                  {employee?.department_name && (
+                  {employee?.department_name ? (
                     <div className="flex items-center gap-1.5 text-white/50 text-xs mt-1">
                       <Building2 size={11} className="flex-shrink-0" />
                       <span className="break-words">{employee.department_name}{employee?.position_title ? ` · ${employee.position_title}` : ''}</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-white/50 text-xs mt-1">
+                      <Shield size={11} className="flex-shrink-0" />
+                      <span className="break-words">{fmtRole(user.role)} · {user.email}</span>
                     </div>
                   )}
                 </div>
@@ -282,7 +287,7 @@ export default function ProfileDive({ stats, recentLeaves, myTicketCount }) {
                   )}
 
                   <div className="flex-shrink-0">
-                    {!attendance && (
+                    {(!attendance || checkedOut) && (
                       <button onClick={handleCheckIn} disabled={actionLoading} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-oe-success text-white text-xs font-semibold hover:bg-oe-success/90 disabled:opacity-50 transition-colors">
                         {actionLoading ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <LogIn size={13} />}
                         Check In
@@ -353,8 +358,44 @@ export default function ProfileDive({ stats, recentLeaves, myTicketCount }) {
               </div>
             </div>
 
-            {/* Employee Details Grid */}
-            <div className="bg-oe-card px-5 py-3.5">
+            {/* Admin info — shown when no employee record is linked */}
+            {!user.employeeId && (
+              <div className="bg-oe-card px-5 py-3.5">
+                <div className="text-[10px] font-semibold text-oe-muted uppercase tracking-wider mb-2.5">Account Info</div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+                  <div className="flex items-center gap-2 col-span-2">
+                    <div className="w-6 h-6 rounded-md bg-oe-warning/8 flex items-center justify-center flex-shrink-0">
+                      <Mail size={12} className="text-oe-warning" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] text-oe-muted uppercase tracking-wider leading-tight">Email</div>
+                      <div className="text-xs font-medium text-oe-text break-all">{user.email}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-md bg-oe-primary/8 flex items-center justify-center flex-shrink-0">
+                      <Shield size={12} className="text-oe-primary" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] text-oe-muted uppercase tracking-wider leading-tight">Role</div>
+                      <div className="text-xs font-medium text-oe-text">{fmtRole(user.role)}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-md bg-oe-success/8 flex items-center justify-center flex-shrink-0">
+                      <User size={12} className="text-oe-success" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] text-oe-muted uppercase tracking-wider leading-tight">Account Type</div>
+                      <div className="text-xs font-medium text-oe-text">System Account</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Employee Details Grid — only shown when employee record exists */}
+            {user.employeeId && <div className="bg-oe-card px-5 py-3.5">
               <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
                 {employee?.position_title && (
                   <div className="flex items-center gap-2">
@@ -414,7 +455,7 @@ export default function ProfileDive({ stats, recentLeaves, myTicketCount }) {
                   </div>
                 )}
               </div>
-            </div>
+            </div>}
 
             {/* Leave Balances */}
             {balances.length > 0 && (
@@ -465,14 +506,7 @@ export default function ProfileDive({ stats, recentLeaves, myTicketCount }) {
             {/* View Profile CTA */}
             <div className="bg-oe-card border-t border-oe-border/40 px-5 py-2.5">
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (user.employeeId) {
-                    router.push(`/employees/${user.employeeId}`);
-                  } else {
-                    router.push('/employees');
-                  }
-                }}
+                onClick={(e) => { e.stopPropagation(); router.push('/profile'); }}
                 className="w-full flex items-center justify-center gap-1.5 text-xs text-oe-primary font-medium hover:underline py-0.5"
               >
                 <TrendingUp size={12} />

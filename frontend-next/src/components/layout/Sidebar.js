@@ -4,7 +4,7 @@ import { useRouter } from 'next/router';
 import {
   LayoutDashboard, Users, GitBranch, Calendar, DollarSign,
   BarChart3, Settings, ChevronLeft, Wallet, ShieldCheck, X, Megaphone,
-  Fingerprint, TicketCheck, Bot, Monitor, ClipboardList, LogOut
+  Fingerprint, TicketCheck, Bot, Monitor, ClipboardList, LogOut, User
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useConfig } from '@/context/ConfigContext';
@@ -17,6 +17,7 @@ const NAV_GROUPS = [
     label: 'Overview',
     items: [
       { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ALL_ROLES_KEY },
+      { to: '/profile', icon: User, label: 'My Profile', roles: ALL_ROLES_KEY },
       { to: '/announcements', icon: Megaphone, label: 'Announcements', roles: ALL_ROLES_KEY },
     ],
   },
@@ -155,30 +156,19 @@ export default function Sidebar({ open, setOpen }) {
       {/* User info block */}
       {(open || isDrawer) && (
         <div className="px-3 py-3 border-t border-slate-200 dark:border-white/8">
-          {user?.employeeId ? (
-            <Link
-              href={`/employees/${user.employeeId}`}
-              onClick={isDrawer ? () => setOpen(false) : undefined}
-              className="flex items-center gap-3 px-2 py-2.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/8 transition-colors group"
-            >
-              <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-white/10 flex items-center justify-center text-[11px] font-semibold text-slate-600 dark:text-white/80 flex-shrink-0 ring-1 ring-slate-300 dark:ring-white/15">
-                {initials}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-slate-700 dark:text-white/80 truncate leading-tight">{fullName || user?.email}</div>
-                <div className="text-[10px] text-slate-400 dark:text-white/40 group-hover:text-oe-primary transition-colors">My Profile →</div>
-              </div>
-            </Link>
-          ) : (
-            <div className="flex items-center gap-3 px-2 py-2.5">
-              <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-white/10 flex items-center justify-center text-[11px] font-semibold text-slate-600 dark:text-white/80 flex-shrink-0 ring-1 ring-slate-300 dark:ring-white/15">
-                {initials}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium text-slate-700 dark:text-white/80 truncate leading-tight">{fullName || user?.email}</div>
-              </div>
+          <Link
+            href="/profile"
+            onClick={isDrawer ? () => setOpen(false) : undefined}
+            className="flex items-center gap-3 px-2 py-2.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/8 transition-colors group"
+          >
+            <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-white/10 flex items-center justify-center text-[11px] font-semibold text-slate-600 dark:text-white/80 flex-shrink-0 ring-1 ring-slate-300 dark:ring-white/15">
+              {initials}
             </div>
-          )}
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-medium text-slate-700 dark:text-white/80 truncate leading-tight">{fullName || user?.email}</div>
+              <div className="text-[10px] text-slate-400 dark:text-white/40 group-hover:text-oe-primary transition-colors">View Profile →</div>
+            </div>
+          </Link>
         </div>
       )}
 

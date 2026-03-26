@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
-import { employeesAPI, leavesAPI, salaryAPI, profileRequestsAPI, documentsAPI, resignationsAPI } from '@/services/api';
+import { employeesAPI, leavesAPI, salaryAPI, profileRequestsAPI, documentsAPI, resignationsAPI, departmentsAPI, positionsAPI } from '@/services/api';
 import useGoBack from '@/hooks/useGoBack';
 import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, Briefcase, User, DollarSign,
   Clock, Plus, Camera, Edit, Send, CheckCircle2, XCircle, ClipboardList,
   Heart, Shield, Globe, Hash, Users, Building, MapPinned, Star, Activity, TrendingUp, Badge,
-  FileText, Upload, Download, Eye, Trash2, AlertTriangle, CreditCard, Landmark
+  FileText, Upload, Download, Eye, Trash2, AlertTriangle, CreditCard, Landmark,
+  X, Image, File, CheckCircle, ChevronDown
 } from 'lucide-react';
 import Modal from '@/components/common/Modal';
 import Avatar from '@/components/common/Avatar';
 import { useAuth } from '@/context/AuthContext';
+import { useConfig } from '@/context/ConfigContext';
 import PrivateRoute from '@/components/auth/PrivateRoute';
 import Layout from '@/components/layout/Layout';
 
@@ -72,6 +74,7 @@ function EmployeeProfileContent() {
   const { id } = router.query;
   const goBack = useGoBack('/employees');
   const { user, permissions } = useAuth();
+  const { employmentTypes: EMPLOYMENT_TYPES, employeeStatuses: STATUSES, genders: GENDERS, maritalStatuses: MARITAL } = useConfig();
   const canEditPhoto = permissions?.canManageAll;
 
   const [emp, setEmp] = useState(null);
@@ -91,6 +94,8 @@ function EmployeeProfileContent() {
   const [editForm, setEditForm] = useState({});
   const [editSaving, setEditSaving] = useState(false);
   const [myRequests, setMyRequests] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [positions, setPositions] = useState([]);
 
   // Documents
   const [documents, setDocuments] = useState([]);
@@ -98,6 +103,7 @@ function EmployeeProfileContent() {
   const [uploadModal, setUploadModal] = useState(false);
   const [uploadForm, setUploadForm] = useState({ document_type: 'id_card', document_name: '', expiry_date: '', comments: '' });
   const [uploadFile, setUploadFile] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
   const docFileRef = useRef(null);
 
@@ -109,18 +115,45 @@ function EmployeeProfileContent() {
 
   const openEditProfile = () => {
     if (!emp) return;
+    if (isHR) {
+      // Load departments and positions for dropdowns
+      departmentsAPI.list().then(r => setDepartments(r.data || [])).catch(() => {});
+      positionsAPI.list().then(r => setPositions(r.data?.data || r.data || [])).catch(() => {});
+    }
     setEditForm({
+      // Personal Info (HR editable)
+      first_name: emp.first_name || '',
+      last_name: emp.last_name || '',
+      middle_name: emp.middle_name || '',
+      date_of_birth: emp.date_of_birth ? emp.date_of_birth.split('T')[0] : '',
+      gender: emp.gender || '',
+      marital_status: emp.marital_status || '',
+      nationality: emp.nationality || '',
+      national_id: emp.national_id || '',
+      // Work Info (HR editable)
+      work_email: emp.work_email || '',
+      department_id: emp.department_id || '',
+      position_id: emp.position_id || '',
+      manager_id: emp.manager_id || '',
+      employment_type: emp.employment_type || '',
+      hire_date: emp.hire_date ? emp.hire_date.split('T')[0] : '',
+      work_location: emp.work_location || '',
+      status: emp.status || '',
+      // Contact
       phone_primary: emp.phone_primary || '',
       phone_secondary: emp.phone_secondary || '',
       personal_email: emp.personal_email || '',
+      // Address
       address_line1: emp.address_line1 || '',
       city: emp.city || '',
       state: emp.state || '',
       country: emp.country || '',
       postal_code: emp.postal_code || '',
+      // Emergency Contact
       emergency_contact_name: emp.emergency_contact_name || '',
       emergency_contact_relation: emp.emergency_contact_relation || '',
       emergency_contact_phone: emp.emergency_contact_phone || '',
+      // Other
       bio: emp.bio || '',
       insurance_card_number: emp.insurance_card_number || '',
       // Banking — only super_admin can edit these
@@ -133,19 +166,25 @@ function EmployeeProfileContent() {
   };
 
   const handleEditSave = async () => {
-    const changes = {};
-    for (const key of Object.keys(editForm)) {
-      if (editForm[key] !== (emp[key] || '')) changes[key] = editForm[key];
-    }
-    if (Object.keys(changes).length === 0) { setEditModal(false); return; }
-
     setEditSaving(true);
     try {
       if (isHR) {
-        await employeesAPI.update(id, { ...emp, ...changes });
-        setEmp(prev => ({ ...prev, ...changes }));
+        // Send full merged payload so all required backend fields are always present
+        const payload = { ...emp, ...editForm };
+        await employeesAPI.update(id, payload);
+        // Re-fetch to get joined fields (department_name, position_title etc.)
+        const res = await employeesAPI.get(id);
+        setEmp(res.data);
         setEditModal(false);
       } else {
+        // Employee: detect only changed fields and submit for HR approval
+        const changes = {};
+        for (const key of Object.keys(editForm)) {
+          const empVal = emp[key] != null ? String(emp[key]) : '';
+          const formVal = editForm[key] != null ? String(editForm[key]) : '';
+          if (formVal !== empVal) changes[key] = editForm[key];
+        }
+        if (Object.keys(changes).length === 0) { setEditModal(false); return; }
         await profileRequestsAPI.create({ employee_id: id, changes });
         setEditModal(false);
         alert('Your profile update request has been submitted for HR approval.');
@@ -892,53 +931,140 @@ function EmployeeProfileContent() {
       )}
 
       {/* Upload Document Modal */}
-      <Modal open={uploadModal} onClose={() => { setUploadModal(false); setUploadFile(null); }} title="Upload Document" size="sm">
-        <div className="p-4 space-y-3">
+      <Modal open={uploadModal} onClose={() => { setUploadModal(false); setUploadFile(null); setDragOver(false); setUploadForm({ document_type: 'id_card', document_name: '', expiry_date: '', comments: '' }); }} title="Upload Document" size="md">
+        <div className="p-5 space-y-4">
+
+          {/* Document Type Grid */}
           <div>
-            <label className="label">Document Type *</label>
-            <select className="input" value={uploadForm.document_type} onChange={e => setUploadForm({...uploadForm, document_type: e.target.value})}>
-              {DOC_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
+            <label className="label mb-2">Document Type *</label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {DOC_TYPES.map(t => {
+                const iconMap = {
+                  id_card: <CreditCard size={14} />, driving_license: <Badge size={14} />,
+                  resume: <FileText size={14} />, degree: <Star size={14} />,
+                  offer_letter: <Send size={14} />, contract: <ClipboardList size={14} />,
+                  medical: <Heart size={14} />, passport_copy: <Globe size={14} />,
+                  nda: <Shield size={14} />, other: <File size={14} />,
+                };
+                const isSelected = uploadForm.document_type === t.value;
+                return (
+                  <button
+                    key={t.value}
+                    type="button"
+                    onClick={() => setUploadForm({ ...uploadForm, document_type: t.value })}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium transition-all text-left ${
+                      isSelected
+                        ? 'border-oe-primary bg-oe-primary/10 text-oe-primary'
+                        : 'border-oe-border text-oe-muted hover:border-oe-primary/50 hover:text-oe-text'
+                    }`}
+                  >
+                    <span className={isSelected ? 'text-oe-primary' : 'text-oe-muted'}>{iconMap[t.value]}</span>
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
+
+          {/* Document Name */}
           <div>
             <label className="label">Document Name</label>
-            <input className="input" placeholder="Leave blank to use filename" value={uploadForm.document_name} onChange={e => setUploadForm({...uploadForm, document_name: e.target.value})} />
+            <input
+              className="input"
+              placeholder="Leave blank to use filename"
+              value={uploadForm.document_name}
+              onChange={e => setUploadForm({ ...uploadForm, document_name: e.target.value })}
+            />
           </div>
+
+          {/* File Drop Zone */}
           <div>
             <label className="label">File *</label>
             <div
-              className="border-2 border-dashed border-oe-border rounded-lg p-4 text-center cursor-pointer hover:border-oe-primary transition-colors"
+              className={`relative border-2 border-dashed rounded-xl transition-all cursor-pointer ${
+                dragOver
+                  ? 'border-oe-primary bg-oe-primary/5 scale-[1.01]'
+                  : uploadFile
+                  ? 'border-oe-success bg-oe-success/5'
+                  : 'border-oe-border hover:border-oe-primary/60 hover:bg-oe-bg'
+              }`}
               onClick={() => docFileRef.current?.click()}
-              onDragOver={e => e.preventDefault()}
-              onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) setUploadFile(f); }}
+              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) setUploadFile(f); }}
             >
               {uploadFile ? (
-                <div className="flex items-center justify-center gap-2 text-sm text-oe-text">
-                  <FileText size={16} className="text-oe-primary" />
-                  <span className="truncate max-w-xs">{uploadFile.name}</span>
-                  <span className="text-oe-muted">({(uploadFile.size/1024/1024).toFixed(2)} MB)</span>
+                <div className="flex items-center gap-3 px-4 py-3">
+                  {/* File type icon */}
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                    uploadFile.type.startsWith('image/') ? 'bg-blue-100 text-blue-600' :
+                    uploadFile.type === 'application/pdf' ? 'bg-red-100 text-red-600' :
+                    'bg-violet-100 text-violet-600'
+                  }`}>
+                    {uploadFile.type.startsWith('image/') ? <Image size={18} /> : <FileText size={18} />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-oe-text truncate">{uploadFile.name}</div>
+                    <div className="text-xs text-oe-muted mt-0.5">
+                      {(uploadFile.size / 1024 / 1024).toFixed(2)} MB
+                      <span className="mx-1.5">·</span>
+                      {uploadFile.type || 'Unknown type'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={e => { e.stopPropagation(); setUploadFile(null); }}
+                    className="p-1.5 rounded-lg hover:bg-oe-danger/10 text-oe-muted hover:text-oe-danger transition-colors flex-shrink-0"
+                  >
+                    <X size={14} />
+                  </button>
                 </div>
               ) : (
-                <div className="text-sm text-oe-muted">
-                  <Upload size={20} className="mx-auto mb-1 text-oe-muted" />
-                  Click or drag & drop · PDF, Word, Image (max 10 MB)
+                <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-3 transition-colors ${dragOver ? 'bg-oe-primary/20' : 'bg-oe-surface'}`}>
+                    <Upload size={20} className={dragOver ? 'text-oe-primary' : 'text-oe-muted'} />
+                  </div>
+                  <p className="text-sm font-medium text-oe-text mb-1">
+                    {dragOver ? 'Drop file here' : 'Click to browse or drag & drop'}
+                  </p>
+                  <p className="text-xs text-oe-muted">PDF, Word, Excel, Image · Max 10 MB</p>
+                  <div className="flex items-center gap-1.5 mt-3 flex-wrap justify-center">
+                    {['PDF', 'DOC', 'DOCX', 'JPG', 'PNG', 'XLSX'].map(ext => (
+                      <span key={ext} className="text-[10px] px-1.5 py-0.5 bg-oe-surface border border-oe-border rounded text-oe-muted font-mono">.{ext.toLowerCase()}</span>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
             <input ref={docFileRef} type="file" className="hidden" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.webp,.xlsx,.xls" onChange={e => setUploadFile(e.target.files[0])} />
           </div>
-          <div>
-            <label className="label">Expiry Date (if applicable)</label>
-            <input type="date" className="input" value={uploadForm.expiry_date} onChange={e => setUploadForm({...uploadForm, expiry_date: e.target.value})} />
+
+          {/* Expiry + Comments row */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="label">Expiry Date <span className="text-oe-muted font-normal">(if applicable)</span></label>
+              <input type="date" className="input" value={uploadForm.expiry_date} onChange={e => setUploadForm({ ...uploadForm, expiry_date: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">Comments <span className="text-oe-muted font-normal">(optional)</span></label>
+              <input className="input" placeholder="Any notes..." value={uploadForm.comments} onChange={e => setUploadForm({ ...uploadForm, comments: e.target.value })} />
+            </div>
           </div>
-          <div>
-            <label className="label">Comments</label>
-            <textarea className="input" rows={2} placeholder="Optional notes..." value={uploadForm.comments} onChange={e => setUploadForm({...uploadForm, comments: e.target.value})} />
-          </div>
-          <div className="flex justify-end gap-3 pt-1">
-            <button onClick={() => { setUploadModal(false); setUploadFile(null); }} className="btn-secondary">Cancel</button>
-            <button onClick={handleDocUpload} disabled={uploading} className="btn-primary">
-              {uploading ? 'Uploading...' : <><Upload size={13}/> Upload</>}
+
+          {/* Actions */}
+          <div className="flex justify-end gap-3 pt-1 border-t border-oe-border">
+            <button
+              onClick={() => { setUploadModal(false); setUploadFile(null); setDragOver(false); setUploadForm({ document_type: 'id_card', document_name: '', expiry_date: '', comments: '' }); }}
+              className="btn-secondary"
+            >
+              Cancel
+            </button>
+            <button onClick={handleDocUpload} disabled={uploading || !uploadFile} className="btn-primary min-w-[120px] justify-center">
+              {uploading ? (
+                <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Uploading...</>
+              ) : (
+                <><Upload size={13} /> Upload Document</>
+              )}
             </button>
           </div>
         </div>
@@ -983,67 +1109,264 @@ function EmployeeProfileContent() {
       </Modal>
 
       {/* Edit Profile Modal */}
-      <Modal open={editModal} onClose={() => setEditModal(false)} title={isHR ? 'Edit Profile' : 'Request Profile Update'} size="md">
-        <div className="p-4 sm:p-6 space-y-5">
+      <Modal open={editModal} onClose={() => setEditModal(false)} title={isHR ? 'Edit Profile' : 'Request Profile Update'} size="lg">
+        <div className="p-5 space-y-6">
           {!isHR && (
-            <div className="bg-oe-warning/10 border border-oe-warning/30 rounded-lg p-3 text-xs text-oe-warning">
-              <strong>Note:</strong> Your changes will be sent to HR for approval before they take effect.
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700 dark:bg-amber-900/20 dark:border-amber-700/40 dark:text-amber-400 flex items-start gap-2">
+              <AlertTriangle size={13} className="mt-0.5 flex-shrink-0" />
+              <span><strong>Note:</strong> Your changes will be submitted to HR for approval before they take effect.</span>
             </div>
           )}
-          <div>
-            <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider mb-3">Contact Information</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div><label className="label">Primary Phone</label><input className="input" value={editForm.phone_primary || ''} onChange={e => setEditForm({ ...editForm, phone_primary: e.target.value })} /></div>
-              <div><label className="label">Secondary Phone</label><input className="input" value={editForm.phone_secondary || ''} onChange={e => setEditForm({ ...editForm, phone_secondary: e.target.value })} /></div>
-              <div className="sm:col-span-2"><label className="label">Personal Email</label><input type="email" className="input" value={editForm.personal_email || ''} onChange={e => setEditForm({ ...editForm, personal_email: e.target.value })} /></div>
-            </div>
-          </div>
-          <div>
-            <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider mb-3">Address</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="sm:col-span-2"><label className="label">Address</label><input className="input" value={editForm.address_line1 || ''} onChange={e => setEditForm({ ...editForm, address_line1: e.target.value })} /></div>
-              <div><label className="label">City</label><input className="input" value={editForm.city || ''} onChange={e => setEditForm({ ...editForm, city: e.target.value })} /></div>
-              <div><label className="label">State</label><input className="input" value={editForm.state || ''} onChange={e => setEditForm({ ...editForm, state: e.target.value })} /></div>
-              <div><label className="label">Country</label><input className="input" value={editForm.country || ''} onChange={e => setEditForm({ ...editForm, country: e.target.value })} /></div>
-              <div><label className="label">Postal Code</label><input className="input" value={editForm.postal_code || ''} onChange={e => setEditForm({ ...editForm, postal_code: e.target.value })} /></div>
-            </div>
-          </div>
-          <div>
-            <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider mb-3">Emergency Contact</h4>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div><label className="label">Name</label><input className="input" value={editForm.emergency_contact_name || ''} onChange={e => setEditForm({ ...editForm, emergency_contact_name: e.target.value })} /></div>
-              <div><label className="label">Relation</label><input className="input" value={editForm.emergency_contact_relation || ''} onChange={e => setEditForm({ ...editForm, emergency_contact_relation: e.target.value })} /></div>
-              <div><label className="label">Phone</label><input className="input" value={editForm.emergency_contact_phone || ''} onChange={e => setEditForm({ ...editForm, emergency_contact_phone: e.target.value })} /></div>
-            </div>
-          </div>
-          <div>
-            <label className="label">Bio</label>
-            <textarea className="input" rows={2} value={editForm.bio || ''} onChange={e => setEditForm({ ...editForm, bio: e.target.value })} />
-          </div>
-          <div>
-            <label className="label">Insurance Card Number</label>
-            <input className="input" value={editForm.insurance_card_number || ''} onChange={e => setEditForm({ ...editForm, insurance_card_number: e.target.value })} />
-          </div>
-          {user?.role === 'super_admin' && (
-            <div>
-              <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <Landmark size={12} /> Banking Information <span className="text-oe-warning text-[10px] font-normal">(Super Admin only)</span>
-              </h4>
+
+          {/* Personal Information — HR only */}
+          {isHR && (
+            <section>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-5 h-5 rounded bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center flex-shrink-0">
+                  <User size={11} className="text-violet-600 dark:text-violet-400" />
+                </div>
+                <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider">Personal Information</h4>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="label">First Name *</label>
+                  <input className="input" value={editForm.first_name || ''} onChange={e => setEditForm({ ...editForm, first_name: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label">Middle Name</label>
+                  <input className="input" value={editForm.middle_name || ''} onChange={e => setEditForm({ ...editForm, middle_name: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label">Last Name *</label>
+                  <input className="input" value={editForm.last_name || ''} onChange={e => setEditForm({ ...editForm, last_name: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label">Date of Birth</label>
+                  <input type="date" className="input" value={editForm.date_of_birth || ''} onChange={e => setEditForm({ ...editForm, date_of_birth: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label">Gender</label>
+                  <select className="input" value={editForm.gender || ''} onChange={e => setEditForm({ ...editForm, gender: e.target.value })}>
+                    <option value="">Select...</option>
+                    {(GENDERS || []).map(g => <option key={g} value={g}>{g.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Marital Status</label>
+                  <select className="input" value={editForm.marital_status || ''} onChange={e => setEditForm({ ...editForm, marital_status: e.target.value })}>
+                    <option value="">Select...</option>
+                    {(MARITAL || []).map(m => <option key={m} value={m}>{m.replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Nationality</label>
+                  <input className="input" placeholder="e.g. Pakistani" value={editForm.nationality || ''} onChange={e => setEditForm({ ...editForm, nationality: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label">National ID / CNIC</label>
+                  <input className="input" value={editForm.national_id || ''} onChange={e => setEditForm({ ...editForm, national_id: e.target.value })} />
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Employment Details — HR only */}
+          {isHR && (
+            <section>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-5 h-5 rounded bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center flex-shrink-0">
+                  <Briefcase size={11} className="text-blue-600 dark:text-blue-400" />
+                </div>
+                <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider">Employment Details</h4>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div><label className="label">Bank Name</label><input className="input" value={editForm.bank_name || ''} onChange={e => setEditForm({...editForm, bank_name: e.target.value})} /></div>
-                <div><label className="label">Account Holder Name</label><input className="input" value={editForm.account_holder_name || ''} onChange={e => setEditForm({...editForm, account_holder_name: e.target.value})} /></div>
-                <div><label className="label">Account Number</label><input className="input" value={editForm.bank_account_number || ''} onChange={e => setEditForm({...editForm, bank_account_number: e.target.value})} /></div>
-                <div><label className="label">IBAN</label><input className="input" value={editForm.iban || ''} onChange={e => setEditForm({...editForm, iban: e.target.value})} /></div>
+                <div>
+                  <label className="label">Work Email</label>
+                  <input type="email" className="input" value={editForm.work_email || ''} onChange={e => setEditForm({ ...editForm, work_email: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label">Hire Date</label>
+                  <input type="date" className="input" value={editForm.hire_date || ''} onChange={e => setEditForm({ ...editForm, hire_date: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label">Department</label>
+                  <select className="input" value={editForm.department_id || ''} onChange={e => setEditForm({ ...editForm, department_id: e.target.value })}>
+                    <option value="">Select department...</option>
+                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Position</label>
+                  <select className="input" value={editForm.position_id || ''} onChange={e => setEditForm({ ...editForm, position_id: e.target.value })}>
+                    <option value="">Select position...</option>
+                    {positions.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Employment Type</label>
+                  <select className="input" value={editForm.employment_type || ''} onChange={e => setEditForm({ ...editForm, employment_type: e.target.value })}>
+                    <option value="">Select...</option>
+                    {(EMPLOYMENT_TYPES || []).map(t => <option key={t} value={t}>{t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Status</label>
+                  <select className="input" value={editForm.status || ''} onChange={e => setEditForm({ ...editForm, status: e.target.value })}>
+                    <option value="">Select...</option>
+                    {(STATUSES || []).map(s => <option key={s} value={s}>{s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="label">Work Location</label>
+                  <input className="input" placeholder="e.g. Office, Remote, Hybrid" value={editForm.work_location || ''} onChange={e => setEditForm({ ...editForm, work_location: e.target.value })} />
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Contact Information */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-5 h-5 rounded bg-green-100 dark:bg-green-900/40 flex items-center justify-center flex-shrink-0">
+                <Phone size={11} className="text-green-600 dark:text-green-400" />
+              </div>
+              <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider">Contact Information</h4>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="label">Primary Phone</label>
+                <input className="input" placeholder="+92 300 0000000" value={editForm.phone_primary || ''} onChange={e => setEditForm({ ...editForm, phone_primary: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">Secondary Phone</label>
+                <input className="input" value={editForm.phone_secondary || ''} onChange={e => setEditForm({ ...editForm, phone_secondary: e.target.value })} />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="label">Personal Email</label>
+                <input type="email" className="input" value={editForm.personal_email || ''} onChange={e => setEditForm({ ...editForm, personal_email: e.target.value })} />
               </div>
             </div>
+          </section>
+
+          {/* Address */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-5 h-5 rounded bg-orange-100 dark:bg-orange-900/40 flex items-center justify-center flex-shrink-0">
+                <MapPin size={11} className="text-orange-600 dark:text-orange-400" />
+              </div>
+              <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider">Address</h4>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="sm:col-span-2">
+                <label className="label">Street Address</label>
+                <input className="input" value={editForm.address_line1 || ''} onChange={e => setEditForm({ ...editForm, address_line1: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">City</label>
+                <input className="input" value={editForm.city || ''} onChange={e => setEditForm({ ...editForm, city: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">State / Province</label>
+                <input className="input" value={editForm.state || ''} onChange={e => setEditForm({ ...editForm, state: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">Country</label>
+                <input className="input" value={editForm.country || ''} onChange={e => setEditForm({ ...editForm, country: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">Postal Code</label>
+                <input className="input" value={editForm.postal_code || ''} onChange={e => setEditForm({ ...editForm, postal_code: e.target.value })} />
+              </div>
+            </div>
+          </section>
+
+          {/* Emergency Contact */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-5 h-5 rounded bg-red-100 dark:bg-red-900/40 flex items-center justify-center flex-shrink-0">
+                <Heart size={11} className="text-red-500 dark:text-red-400" />
+              </div>
+              <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider">Emergency Contact</h4>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="label">Name</label>
+                <input className="input" value={editForm.emergency_contact_name || ''} onChange={e => setEditForm({ ...editForm, emergency_contact_name: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">Relation</label>
+                <input className="input" placeholder="e.g. Spouse, Parent" value={editForm.emergency_contact_relation || ''} onChange={e => setEditForm({ ...editForm, emergency_contact_relation: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">Phone</label>
+                <input className="input" value={editForm.emergency_contact_phone || ''} onChange={e => setEditForm({ ...editForm, emergency_contact_phone: e.target.value })} />
+              </div>
+            </div>
+          </section>
+
+          {/* Additional Info */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-5 h-5 rounded bg-slate-100 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
+                <ClipboardList size={11} className="text-slate-500 dark:text-slate-400" />
+              </div>
+              <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider">Additional Info</h4>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="label">Bio</label>
+                <textarea className="input" rows={2} placeholder="Brief professional bio..." value={editForm.bio || ''} onChange={e => setEditForm({ ...editForm, bio: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">Insurance Card Number</label>
+                <input className="input" value={editForm.insurance_card_number || ''} onChange={e => setEditForm({ ...editForm, insurance_card_number: e.target.value })} />
+              </div>
+            </div>
+          </section>
+
+          {/* Banking — super_admin only */}
+          {user?.role === 'super_admin' && (
+            <section>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-5 h-5 rounded bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center flex-shrink-0">
+                  <Landmark size={11} className="text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider">Banking Information</h4>
+                <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 px-1.5 py-0.5 rounded">Super Admin only</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Bank Name</label>
+                  <input className="input" value={editForm.bank_name || ''} onChange={e => setEditForm({ ...editForm, bank_name: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label">Account Holder Name</label>
+                  <input className="input" value={editForm.account_holder_name || ''} onChange={e => setEditForm({ ...editForm, account_holder_name: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label">Account Number</label>
+                  <input className="input" value={editForm.bank_account_number || ''} onChange={e => setEditForm({ ...editForm, bank_account_number: e.target.value })} />
+                </div>
+                <div>
+                  <label className="label">IBAN</label>
+                  <input className="input" value={editForm.iban || ''} onChange={e => setEditForm({ ...editForm, iban: e.target.value })} />
+                </div>
+              </div>
+            </section>
           )}
-          <div className="flex flex-col sm:flex-row justify-end gap-3 pt-1">
-            <button onClick={() => setEditModal(false)} className="btn-secondary justify-center">Cancel</button>
-            <button onClick={handleEditSave} disabled={editSaving} className="btn-primary justify-center gap-1.5">
-              {editSaving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send size={13} />}
-              {editSaving ? 'Submitting...' : isHR ? 'Save Changes' : 'Submit for Approval'}
-            </button>
-          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex flex-col sm:flex-row justify-end gap-3 pt-2 pb-1 border-t border-oe-border mt-4">
+          <button onClick={() => setEditModal(false)} className="btn-secondary justify-center">Cancel</button>
+          <button onClick={handleEditSave} disabled={editSaving} className="btn-primary justify-center gap-1.5 min-w-[160px]">
+            {editSaving
+              ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving...</>
+              : isHR
+                ? <><CheckCircle size={13} /> Save Changes</>
+                : <><Send size={13} /> Submit for Approval</>
+            }
+          </button>
         </div>
       </Modal>
 

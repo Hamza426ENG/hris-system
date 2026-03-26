@@ -93,8 +93,7 @@ router.get('/stats', async (req, res) => {
         `),
       ]);
 
-      res.set('Cache-Control', 'private, max-age=30');
-      return res.json({
+      const adminResponse = {
         view: 'admin',
         stats: {
           totalEmployees: parseInt(totalEmp.rows[0].count),
@@ -111,7 +110,60 @@ router.get('/stats', async (req, res) => {
         recentHires: recentHires.rows,
         leaveSummary: leaveSummary.rows,
         deptHeadcount: deptHeadcount.rows,
-      });
+      };
+
+      // HR users who also have an employee record get their personal stats too
+      // (everyone except super_admin is an employee)
+      const hrEmpId = req.user.employee_id;
+      if (hrEmpId) {
+        const [hrEmpInfo, hrAttMonth, hrToday, hrBalances] = await Promise.all([
+          db.query(`
+            SELECT e.first_name, e.last_name, e.employee_id, e.avatar_url,
+              d.name as department_name, p.title as position_title
+            FROM employees e
+            LEFT JOIN departments d ON d.id = e.department_id
+            LEFT JOIN positions p ON p.id = e.position_id
+            WHERE e.id = $1
+          `, [hrEmpId]),
+          db.query(`
+            SELECT COUNT(*) as days_present
+            FROM attendance_records
+            WHERE employee_id = $1
+              AND date >= DATE_TRUNC('month', CURRENT_DATE)
+              AND check_in IS NOT NULL
+          `, [hrEmpId]),
+          db.query(`
+            SELECT * FROM attendance_records
+            WHERE employee_id = $1 AND date = CURRENT_DATE LIMIT 1
+          `, [hrEmpId]),
+          db.query(`
+            SELECT lb.*, lt.name as leave_type_name, lt.color
+            FROM leave_balances lb
+            JOIN leave_types lt ON lt.id = lb.leave_type_id
+            WHERE lb.employee_id = $1 AND lb.year = EXTRACT(YEAR FROM NOW())
+          `, [hrEmpId]),
+        ]);
+
+        const balances = hrBalances.rows || [];
+        const totalAllocated = balances.reduce((s, b) => s + (parseFloat(b.allocated_days) || 0), 0);
+        const totalUsed = balances.reduce((s, b) => s + (parseFloat(b.used_days) || 0), 0);
+
+        adminResponse.personal = {
+          employee: hrEmpInfo.rows[0] || {},
+          stats: {
+            leavesAllocated: totalAllocated,
+            leavesUsed: totalUsed,
+            leavesRemaining: totalAllocated - totalUsed,
+            daysPresent: parseInt(hrAttMonth.rows[0]?.days_present || 0),
+            checkedInToday: !!hrToday.rows[0]?.check_in,
+            checkedOutToday: !!hrToday.rows[0]?.check_out,
+          },
+          leaveBalances: balances,
+        };
+      }
+
+      res.set('Cache-Control', 'private, max-age=30');
+      return res.json(adminResponse);
     }
 
     // ── Non-HR roles: personal dashboard only ───────────────────────
@@ -144,13 +196,13 @@ router.get('/stats', async (req, res) => {
       `, [empId]),
       db.query(`
         SELECT COUNT(*) as days_present
-        FROM attendance
+        FROM attendance_records
         WHERE employee_id = $1
           AND date >= DATE_TRUNC('month', CURRENT_DATE)
           AND check_in IS NOT NULL
       `, [empId]),
       db.query(`
-        SELECT * FROM attendance
+        SELECT * FROM attendance_records
         WHERE employee_id = $1 AND date = CURRENT_DATE
         LIMIT 1
       `, [empId]),

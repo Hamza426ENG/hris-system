@@ -204,7 +204,10 @@ router.get('/today', async (req, res) => {
 
 /**
  * POST /attendance/checkin
- * Check in the current user. Idempotent — won't overwrite existing check-in.
+ * Check in the current user.
+ * - First check-in of the day: creates record.
+ * - Already checked in (no check_out): no-op, returns existing record.
+ * - Already checked out: re-opens session (resets check_in to NOW, clears check_out & work_hours).
  */
 router.post('/checkin', async (req, res) => {
   try {
@@ -218,13 +221,22 @@ router.post('/checkin', async (req, res) => {
     const isLateArrival = now.getHours() > lateHH || (now.getHours() === lateHH && now.getMinutes() > lateMM);
 
     const result = await db.query(
-      `INSERT INTO attendance_records (employee_id, date, check_in, status, is_late, created_by, updated_at)
-       VALUES ($1, CURRENT_DATE, NOW(), 'present', $3, $2, NOW())
+      `INSERT INTO attendance_records (employee_id, date, check_in, status, is_late, source, created_by, updated_at)
+       VALUES ($1, CURRENT_DATE, NOW(), 'present', $3, 'manual', $2, NOW())
        ON CONFLICT (employee_id, date)
        DO UPDATE SET
-         check_in   = CASE WHEN attendance_records.check_in IS NULL THEN NOW() ELSE attendance_records.check_in END,
+         -- Re-check-in after checkout: reset check_in, clear check_out & work_hours.
+         -- Already checked in (no checkout): keep existing check_in.
+         check_in   = CASE
+                        WHEN attendance_records.check_out IS NOT NULL THEN NOW()
+                        WHEN attendance_records.check_in  IS NULL     THEN NOW()
+                        ELSE attendance_records.check_in
+                      END,
+         check_out  = CASE WHEN attendance_records.check_out IS NOT NULL THEN NULL ELSE attendance_records.check_out END,
+         work_hours = CASE WHEN attendance_records.check_out IS NOT NULL THEN NULL ELSE attendance_records.work_hours END,
          is_late    = CASE WHEN attendance_records.check_in IS NULL THEN $3 ELSE attendance_records.is_late END,
-         status     = COALESCE(attendance_records.status, 'present'),
+         status     = 'present',
+         source     = CASE WHEN attendance_records.source = 'device' THEN 'device' ELSE 'manual' END,
          updated_by = $2,
          updated_at = NOW()
        RETURNING *`,
@@ -560,6 +572,53 @@ router.get('/summary/:employeeId', async (req, res) => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 /**
+ * GET /attendance/sync-status
+ * Returns last sync status for all active ZKTeco devices.
+ * Accessible by: all authenticated users (employees see their own last-synced time).
+ */
+router.get('/sync-status', async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT id, name, ip_address, is_active, auto_sync,
+              last_sync_at, last_sync_status, last_sync_message, total_synced
+       FROM device_connections
+       WHERE is_active = TRUE
+       ORDER BY last_sync_at DESC NULLS LAST`
+    );
+    const intervalMinutes = parseInt(process.env.ZKTECO_SYNC_INTERVAL) || 5;
+    res.json({ devices: result.rows, intervalMinutes });
+  } catch (err) {
+    console.error('GET /attendance/sync-status error:', err);
+    res.status(500).json({ error: 'Failed to fetch sync status' });
+  }
+});
+
+/**
+ * POST /attendance/sync-now
+ * Immediately triggers a full sync cycle for all active auto-sync devices.
+ * Accessible by: super_admin only.
+ */
+router.post('/sync-now', authorize('super_admin'), async (req, res) => {
+  try {
+    const { runSyncCycle } = require('../services/attendanceSyncScheduler');
+    // Run cycle async — respond immediately so the UI doesn't time out
+    res.json({ message: 'Sync started', startedAt: new Date().toISOString() });
+    // Run after responding
+    setImmediate(async () => {
+      try {
+        await runSyncCycle();
+        console.log('[Manual Sync] Triggered by user', req.user.id, '— completed');
+      } catch (err) {
+        console.error('[Manual Sync] Error:', err.message);
+      }
+    });
+  } catch (err) {
+    console.error('POST /attendance/sync-now error:', err);
+    res.status(500).json({ error: 'Failed to trigger sync' });
+  }
+});
+
+/**
  * GET /attendance/all?employee_id=&department=&start_date=&end_date=&status=&page=&limit=&sort_by=&sort_order=
  * Search, filter, and paginate all attendance records.
  * Accessible by: super_admin, hr_admin, manager, team_lead
@@ -643,6 +702,24 @@ router.get('/all', authorize(...LEAD_ROLES), async (req, res) => {
       )`);
       params.push(`%${search}%`);
       paramIdx++;
+    }
+
+    // Source filter: 'manual' or 'device'
+    if (req.query.source) {
+      conditions.push(`ar.source = $${paramIdx}`);
+      params.push(req.query.source);
+      paramIdx++;
+    }
+
+    // Flag filter: late, short, missing_io, overtime
+    if (req.query.flag === 'late') {
+      conditions.push(`EXTRACT(HOUR FROM ar.check_in) >= 10`);
+    } else if (req.query.flag === 'short') {
+      conditions.push(`ar.work_hours IS NOT NULL AND ar.work_hours > 0 AND ar.work_hours < 8`);
+    } else if (req.query.flag === 'missing_io') {
+      conditions.push(`((ar.check_in IS NOT NULL AND ar.check_out IS NULL) OR (ar.check_in IS NULL AND ar.check_out IS NOT NULL))`);
+    } else if (req.query.flag === 'overtime') {
+      conditions.push(`ar.work_hours IS NOT NULL AND ar.work_hours > 8`);
     }
 
     const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';

@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
-import { employeesAPI, departmentsAPI } from '@/services/api';
+import { employeesAPI, departmentsAPI, positionsAPI } from '@/services/api';
 import Modal from '@/components/common/Modal';
 import ConfirmModal from '@/components/common/ConfirmModal';
-import { Plus, Search, Download, Eye, Edit, UserX, UserCheck, Users, RefreshCw, Archive, UserCog, Clock, CalendarOff, Building2 } from 'lucide-react';
+import { Plus, Search, Download, Eye, Edit, UserX, UserCheck, Users, RefreshCw, Archive, UserCog, Clock, CalendarOff, Building2, Upload, FileSpreadsheet, AlertCircle, CheckCircle2, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useConfig } from '@/context/ConfigContext';
 import PrivateRoute from '@/components/auth/PrivateRoute';
@@ -11,17 +11,19 @@ import Layout from '@/components/layout/Layout';
 
 const initForm = {
   first_name: '', last_name: '', middle_name: '', date_of_birth: '', gender: '', marital_status: '',
-  nationality: '', national_id: '', personal_email: '', work_email: '', phone_primary: '', phone_secondary: '',
-  address_line1: '', city: '', state: '', country: 'USA', postal_code: '',
+  nationality: '', national_id: '', passport_number: '', personal_email: '', work_email: '',
+  phone_primary: '', phone_secondary: '', address_line1: '', address_line2: '', city: '', state: '',
+  country: 'USA', postal_code: '',
   emergency_contact_name: '', emergency_contact_relation: '', emergency_contact_phone: '',
   department_id: '', position_id: '', manager_id: '', employment_type: 'full_time', status: 'active',
-  hire_date: '', work_location: '', bio: '',
+  hire_date: '', confirmation_date: '', work_location: '', bio: '',
+  bank_account_number: '', bank_name: '', iban: '', account_holder_name: '', insurance_card_number: '',
 };
 
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-';
 
 // Defined outside component so React doesn't recreate it on every render (prevents focus loss)
-function FormField({ label, name, type = 'text', options, required, form, setForm }) {
+function FormField({ label, name, type = 'text', options, required, form, setForm, multiline }) {
   return (
     <div>
       <label className="label">{label}{required && ' *'}</label>
@@ -30,6 +32,8 @@ function FormField({ label, name, type = 'text', options, required, form, setFor
           <option value="">Select...</option>
           {options.map(o => <option key={o.value || o} value={o.value || o}>{o.label || o.replace('_', ' ')}</option>)}
         </select>
+      ) : multiline ? (
+        <textarea className="input" rows={3} value={form[name] || ''} onChange={e => setForm({ ...form, [name]: e.target.value })} />
       ) : (
         <input type={type} className="input" value={form[name] || ''} onChange={e => setForm({ ...form, [name]: e.target.value })} required={required} />
       )}
@@ -42,6 +46,8 @@ function EmployeesContent() {
   const { employmentTypes: EMPLOYMENT_TYPES, employeeStatuses: STATUSES, genders: GENDERS, maritalStatuses: MARITAL } = useConfig();
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
+  const [positions, setPositions] = useState([]);
+  const [managers, setManagers] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -55,11 +61,16 @@ function EmployeesContent() {
   const [newEmpPassword, setNewEmpPassword] = useState('');
   const [confirm, setConfirm] = useState(null);
   const [confirming, setConfirming] = useState(false);
+  // Bulk import state
+  const [importFile, setImportFile] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
   const router = useRouter();
 
   const LIMIT = 50;
   const totalPages = Math.ceil(total / LIMIT);
   const isHR = ['super_admin', 'hr_admin'].includes(user?.role);
+  const isSuperAdmin = user?.role === 'super_admin';
 
   // Only HR and super_admin can view the employees list; everyone else goes to their own profile
   useEffect(() => {
@@ -82,7 +93,12 @@ function EmployeesContent() {
 
   // Re-run (from page 1) whenever filters change
   useEffect(() => { load(1); }, [load]);
-  useEffect(() => { departmentsAPI.list().then(r => setDepartments(r.data)).catch(console.error); }, []);
+  useEffect(() => {
+    departmentsAPI.list().then(r => setDepartments(r.data)).catch(console.error);
+    positionsAPI.list().then(r => setPositions(r.data?.data || r.data || [])).catch(console.error);
+    // Load managers (all employees for manager dropdown)
+    employeesAPI.list({ limit: 500 }).then(r => setManagers(r.data.data || [])).catch(console.error);
+  }, []);
 
   const openAdd = () => { setForm(initForm); setEditId(null); setNewEmpPassword(''); setModal('add'); };
   const openEdit = (emp, e) => {
@@ -92,9 +108,11 @@ function EmployeesContent() {
       date_of_birth: emp.date_of_birth ? emp.date_of_birth.split('T')[0] : '',
       gender: emp.gender || '', marital_status: emp.marital_status || '',
       nationality: emp.nationality || '', national_id: emp.national_id || '',
+      passport_number: emp.passport_number || '',
       personal_email: emp.personal_email || '', work_email: emp.work_email || '',
       phone_primary: emp.phone_primary || '', phone_secondary: emp.phone_secondary || '',
-      address_line1: emp.address_line1 || '', city: emp.city || '', state: emp.state || '',
+      address_line1: emp.address_line1 || '', address_line2: emp.address_line2 || '',
+      city: emp.city || '', state: emp.state || '',
       country: emp.country || 'USA', postal_code: emp.postal_code || '',
       emergency_contact_name: emp.emergency_contact_name || '',
       emergency_contact_relation: emp.emergency_contact_relation || '',
@@ -102,7 +120,11 @@ function EmployeesContent() {
       department_id: emp.department_id || '', position_id: emp.position_id || '',
       manager_id: emp.manager_id || '', employment_type: emp.employment_type || 'full_time',
       status: emp.status || 'active', hire_date: emp.hire_date ? emp.hire_date.split('T')[0] : '',
+      confirmation_date: emp.confirmation_date ? emp.confirmation_date.split('T')[0] : '',
       work_location: emp.work_location || '', bio: emp.bio || '',
+      bank_account_number: emp.bank_account_number || '', bank_name: emp.bank_name || '',
+      iban: emp.iban || '', account_holder_name: emp.account_holder_name || '',
+      insurance_card_number: emp.insurance_card_number || '',
     });
     setEditId(emp.id);
     setModal('edit');
@@ -159,6 +181,39 @@ function EmployeesContent() {
     const a = document.createElement('a'); a.href = url; a.download = 'employees.csv'; a.click();
   };
 
+  const handleDownloadTemplate = async () => {
+    try {
+      const res = await employeesAPI.downloadTemplate();
+      const url = URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a'); a.href = url; a.download = 'employee_import_template.xlsx'; a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) { alert('Failed to download template'); }
+  };
+
+  const handleExportAll = async () => {
+    try {
+      const res = await employeesAPI.exportAll();
+      const url = URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement('a'); a.href = url; a.download = 'employees_complete_data.xlsx'; a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) { alert('Failed to export data'); }
+  };
+
+  const handleBulkImport = async () => {
+    if (!importFile) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', importFile);
+      const res = await employeesAPI.bulkImport(fd);
+      setImportResult(res.data);
+      load();
+    } catch (err) {
+      setImportResult({ created: 0, errors: [{ row: '-', error: err.response?.data?.error || 'Import failed' }] });
+    } finally { setImporting(false); }
+  };
+
   const statusBadge = (s) => {
     const map = { active: 'badge-active', inactive: 'badge-inactive', on_leave: 'badge-pending', terminated: 'badge-rejected', probation: 'badge-pending' };
     return <span className={map[s] || 'badge-inactive'}>{s?.replace('_', ' ')}</span>;
@@ -187,9 +242,17 @@ function EmployeesContent() {
               <Download size={14} />
             </button>
             {isHR && (
-              <button onClick={openAdd} className="btn-primary whitespace-nowrap flex items-center gap-1.5 px-3 text-sm">
-                <Plus size={14} /> <span className="hidden sm:inline">Add Employee</span><span className="sm:hidden">Add</span>
-              </button>
+              <>
+                <button onClick={handleExportAll} className="btn-secondary whitespace-nowrap flex items-center gap-1.5 px-3 text-sm" title="Download Complete Data as Excel">
+                  <FileSpreadsheet size={14} /> <span className="hidden sm:inline">Download All</span>
+                </button>
+                <button onClick={() => { setImportFile(null); setImportResult(null); setModal('import'); }} className="btn-secondary whitespace-nowrap flex items-center gap-1.5 px-3 text-sm" title="Bulk Import from Excel">
+                  <Upload size={14} /> <span className="hidden sm:inline">Bulk Import</span>
+                </button>
+                <button onClick={openAdd} className="btn-primary whitespace-nowrap flex items-center gap-1.5 px-3 text-sm">
+                  <Plus size={14} /> <span className="hidden sm:inline">Add Employee</span><span className="sm:hidden">Add</span>
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -407,9 +470,10 @@ function EmployeesContent() {
         )}
       </div>
 
-      {/* Add/Edit Modal */}
+      {/* ─── Add/Edit Employee Modal (complete form) ─── */}
       <Modal open={modal === 'add' || modal === 'edit'} onClose={() => setModal(null)} title={editId ? 'Edit Employee' : 'Add New Employee'} size="lg">
-        <div className="p-4 sm:p-6 space-y-6">
+        <div className="p-4 sm:p-6 space-y-6 max-h-[75vh] overflow-y-auto">
+          {/* Personal Information */}
           <div>
             <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider mb-3">Personal Information</h4>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -421,9 +485,11 @@ function EmployeesContent() {
               <FormField form={form} setForm={setForm} label="Marital Status" name="marital_status" options={MARITAL.map(m => ({ value: m, label: m }))} />
               <FormField form={form} setForm={setForm} label="Nationality" name="nationality" />
               <FormField form={form} setForm={setForm} label="National ID" name="national_id" />
+              <FormField form={form} setForm={setForm} label="Passport Number" name="passport_number" />
             </div>
           </div>
 
+          {/* Contact Information */}
           <div>
             <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider mb-3">Contact Information</h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -431,13 +497,23 @@ function EmployeesContent() {
               <FormField form={form} setForm={setForm} label="Personal Email" name="personal_email" type="email" />
               <FormField form={form} setForm={setForm} label="Primary Phone" name="phone_primary" />
               <FormField form={form} setForm={setForm} label="Secondary Phone" name="phone_secondary" />
-              <FormField form={form} setForm={setForm} label="Address" name="address_line1" />
-              <FormField form={form} setForm={setForm} label="City" name="city" />
-              <FormField form={form} setForm={setForm} label="State" name="state" />
-              <FormField form={form} setForm={setForm} label="Country" name="country" />
             </div>
           </div>
 
+          {/* Address */}
+          <div>
+            <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider mb-3">Address</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <FormField form={form} setForm={setForm} label="Address Line 1" name="address_line1" />
+              <FormField form={form} setForm={setForm} label="Address Line 2" name="address_line2" />
+              <FormField form={form} setForm={setForm} label="City" name="city" />
+              <FormField form={form} setForm={setForm} label="State" name="state" />
+              <FormField form={form} setForm={setForm} label="Country" name="country" />
+              <FormField form={form} setForm={setForm} label="Postal Code" name="postal_code" />
+            </div>
+          </div>
+
+          {/* Emergency Contact */}
           <div>
             <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider mb-3">Emergency Contact</h4>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -447,22 +523,131 @@ function EmployeesContent() {
             </div>
           </div>
 
+          {/* Employment Details */}
           <div>
             <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider mb-3">Employment Details</h4>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <FormField form={form} setForm={setForm} label="Department" name="department_id" options={departments.map(d => ({ value: d.id, label: d.name }))} />
+              <FormField form={form} setForm={setForm} label="Position" name="position_id" options={positions.map(p => ({ value: p.id, label: p.title }))} />
+              <FormField form={form} setForm={setForm} label="Manager" name="manager_id" options={managers.map(m => ({ value: m.id, label: `${m.first_name} ${m.last_name}` }))} />
               <FormField form={form} setForm={setForm} label="Employment Type" name="employment_type" options={EMPLOYMENT_TYPES.map(t => ({ value: t, label: t.replace('_', ' ') }))} />
               <FormField form={form} setForm={setForm} label="Status" name="status" options={STATUSES.map(s => ({ value: s, label: s.replace('_', ' ') }))} />
               <FormField form={form} setForm={setForm} label="Hire Date" name="hire_date" type="date" required />
+              <FormField form={form} setForm={setForm} label="Confirmation Date" name="confirmation_date" type="date" />
               <FormField form={form} setForm={setForm} label="Work Location" name="work_location" />
             </div>
           </div>
+
+          {/* Bio */}
+          <div>
+            <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider mb-3">Bio</h4>
+            <FormField form={form} setForm={setForm} label="Bio" name="bio" multiline />
+          </div>
+
+          {/* Banking & Insurance (super_admin only for add, shown for edit too) */}
+          {isHR && (
+            <div>
+              <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider mb-3">Banking & Insurance</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <FormField form={form} setForm={setForm} label="Bank Name" name="bank_name" />
+                <FormField form={form} setForm={setForm} label="Account Holder Name" name="account_holder_name" />
+                <FormField form={form} setForm={setForm} label="Bank Account Number" name="bank_account_number" />
+                <FormField form={form} setForm={setForm} label="IBAN" name="iban" />
+                <FormField form={form} setForm={setForm} label="Insurance Card Number" name="insurance_card_number" />
+              </div>
+            </div>
+          )}
 
           <div className="flex flex-col sm:flex-row justify-end gap-3 pt-2">
             <button onClick={() => setModal(null)} className="btn-secondary justify-center">Cancel</button>
             <button onClick={handleSave} disabled={saving} className="btn-primary justify-center">
               {saving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : null}
               {saving ? 'Saving...' : editId ? 'Update Employee' : 'Create Employee'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ─── Bulk Import Modal ─── */}
+      <Modal open={modal === 'import'} onClose={() => setModal(null)} title="Bulk Import Employees" size="md">
+        <div className="p-4 sm:p-6 space-y-5">
+          {/* Instructions */}
+          <div className="bg-oe-surface rounded-lg p-4 space-y-2">
+            <h4 className="text-sm font-semibold text-oe-text">Instructions</h4>
+            <ul className="text-xs text-oe-muted space-y-1 list-disc list-inside">
+              <li>Download the sample template and fill in employee data</li>
+              <li><strong>Required columns:</strong> first_name, last_name, hire_date</li>
+              <li>Use department <strong>name</strong> and position <strong>title</strong> (not IDs)</li>
+              <li>Dates should be in <strong>YYYY-MM-DD</strong> format</li>
+              <li>Gender: male, female, other, prefer_not_to_say</li>
+              <li>Employment type: full_time, part_time, contract, intern, consultant</li>
+              <li>Status: active, inactive, on_leave, probation</li>
+              <li>Each employee gets a default password: <strong>Welcome@123</strong></li>
+            </ul>
+          </div>
+
+          {/* Download template */}
+          <button onClick={handleDownloadTemplate} className="btn-secondary w-full justify-center flex items-center gap-2">
+            <Download size={14} /> Download Sample Template (.xlsx)
+          </button>
+
+          {/* File upload */}
+          <div>
+            <label className="label">Upload Excel File</label>
+            <div className="border-2 border-dashed border-oe-border rounded-lg p-6 text-center hover:border-oe-primary/50 transition-colors">
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={e => setImportFile(e.target.files[0] || null)}
+                className="hidden"
+                id="import-file"
+              />
+              <label htmlFor="import-file" className="cursor-pointer">
+                <FileSpreadsheet size={32} className="mx-auto mb-2 text-oe-muted" />
+                {importFile ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="text-sm font-medium text-oe-text">{importFile.name}</span>
+                    <button onClick={e => { e.preventDefault(); setImportFile(null); }} className="text-oe-muted hover:text-oe-danger">
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-oe-muted">Click to select an Excel file (.xlsx)</p>
+                )}
+              </label>
+            </div>
+          </div>
+
+          {/* Import result */}
+          {importResult && (
+            <div className="space-y-2">
+              {importResult.created > 0 && (
+                <div className="flex items-center gap-2 text-sm text-oe-success bg-green-50 rounded-lg p-3">
+                  <CheckCircle2 size={16} />
+                  <span>{importResult.created} employee(s) imported successfully</span>
+                </div>
+              )}
+              {importResult.errors?.length > 0 && (
+                <div className="bg-red-50 rounded-lg p-3 space-y-1">
+                  <div className="flex items-center gap-2 text-sm text-red-600 font-medium">
+                    <AlertCircle size={16} />
+                    <span>{importResult.errors.length} error(s)</span>
+                  </div>
+                  <div className="max-h-32 overflow-y-auto">
+                    {importResult.errors.map((err, i) => (
+                      <div key={i} className="text-xs text-red-500">Row {err.row}: {err.error}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <button onClick={() => setModal(null)} className="btn-secondary flex-1 justify-center">Close</button>
+            <button onClick={handleBulkImport} disabled={!importFile || importing} className="btn-primary flex-1 justify-center">
+              {importing ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" /> : <Upload size={14} className="mr-2" />}
+              {importing ? 'Importing...' : 'Import'}
             </button>
           </div>
         </div>

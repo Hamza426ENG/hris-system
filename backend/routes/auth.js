@@ -145,7 +145,7 @@ router.post('/logout', async (req, res) => {
 router.get('/me', authenticate, async (req, res) => {
   try {
     const result = await db.query(
-      'SELECT u.id, u.email, u.role, u.last_login, e.id as employee_id, e.first_name, e.last_name, e.avatar_url, e.department_id, e.position_id FROM users u LEFT JOIN employees e ON e.user_id = u.id WHERE u.id = $1',
+      'SELECT u.id, u.email, u.role, u.last_login, u.created_at, e.id as employee_id, e.first_name, e.last_name, e.avatar_url, e.department_id, e.position_id FROM users u LEFT JOIN employees e ON e.user_id = u.id WHERE u.id = $1',
       [req.user.id]
     );
     res.set('Cache-Control', 'private, max-age=10');

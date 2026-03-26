@@ -46,6 +46,9 @@ export const employeesAPI = {
   getSalary: (id) => api.get(`/employees/${id}/salary`),
   getPayroll: (id) => api.get(`/employees/${id}/payroll`),
   getResignation: (id) => api.get(`/employees/${id}/resignation`),
+  downloadTemplate: () => api.get('/employees/sample-template', { responseType: 'blob' }),
+  bulkImport: (formData) => api.post('/employees/bulk-import', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  exportAll: () => api.get('/employees/export', { responseType: 'blob' }),
 };
 
 export const departmentsAPI = {
@@ -142,6 +145,8 @@ export const attendanceAPI = {
   delete: (id) => api.delete(`/attendance/${id}`),
   liveToday: () => api.get('/attendance/live-today'),
   streamUrl: (token) => `${API_URL}/attendance/stream?token=${encodeURIComponent(token)}`,
+  syncStatus: () => api.get('/attendance/sync-status'),
+  syncNow: () => api.post('/attendance/sync-now'),
 };
 
 export const auditLogsAPI = {

@@ -1,10 +1,242 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const XLSX = require('xlsx');
+const multer = require('multer');
 const db = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 router.use(authenticate);
+
+// Multer — memory storage for Excel uploads
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+
+// ─── SAMPLE TEMPLATE columns (order matters for import) ───
+const TEMPLATE_COLUMNS = [
+  'first_name', 'last_name', 'middle_name', 'date_of_birth', 'gender', 'marital_status',
+  'nationality', 'national_id', 'passport_number', 'personal_email', 'work_email',
+  'phone_primary', 'phone_secondary', 'address_line1', 'address_line2', 'city', 'state',
+  'country', 'postal_code', 'emergency_contact_name', 'emergency_contact_relation',
+  'emergency_contact_phone', 'department_name', 'position_title', 'employment_type',
+  'status', 'hire_date', 'confirmation_date', 'work_location', 'bio',
+  'bank_account_number', 'bank_name', 'iban', 'account_holder_name', 'insurance_card_number',
+];
+
+// GET /api/employees/sample-template — download Excel template with sample row
+router.get('/sample-template', authorize('super_admin', 'hr_admin'), (_req, res) => {
+  try {
+    const sampleRow = {
+      first_name: 'John', last_name: 'Doe', middle_name: '', date_of_birth: '1990-01-15',
+      gender: 'male', marital_status: 'single', nationality: 'American', national_id: '12345678',
+      passport_number: 'P1234567', personal_email: 'john.personal@email.com',
+      work_email: 'john.doe@company.com', phone_primary: '+1234567890', phone_secondary: '',
+      address_line1: '123 Main St', address_line2: 'Apt 4B', city: 'New York', state: 'NY',
+      country: 'USA', postal_code: '10001', emergency_contact_name: 'Jane Doe',
+      emergency_contact_relation: 'Spouse', emergency_contact_phone: '+1987654321',
+      department_name: 'Engineering', position_title: 'Software Engineer',
+      employment_type: 'full_time', status: 'active', hire_date: '2024-03-01',
+      confirmation_date: '2024-06-01', work_location: 'Head Office', bio: '',
+      bank_account_number: '1234567890', bank_name: 'ABC Bank', iban: 'US12345678901234',
+      account_holder_name: 'John Doe', insurance_card_number: 'INS-001',
+    };
+    const ws = XLSX.utils.json_to_sheet([sampleRow], { header: TEMPLATE_COLUMNS });
+    // Set column widths
+    ws['!cols'] = TEMPLATE_COLUMNS.map(c => ({ wch: Math.max(c.length + 2, 18) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Employees');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', 'attachment; filename=employee_import_template.xlsx');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buf);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to generate template' });
+  }
+});
+
+// POST /api/employees/bulk-import — upload Excel and create employees
+router.post('/bulk-import', authorize('super_admin', 'hr_admin'), upload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  try {
+    const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    if (!rows.length) return res.status(400).json({ error: 'Excel file is empty' });
+
+    // Validate required columns
+    const first = rows[0];
+    for (const col of ['first_name', 'last_name', 'hire_date']) {
+      if (!(col in first)) return res.status(400).json({ error: `Missing required column: ${col}` });
+    }
+
+    // Pre-load departments & positions for name→id mapping
+    const deptRows = (await db.query('SELECT id, name FROM departments')).rows;
+    const posRows = (await db.query('SELECT id, title FROM positions')).rows;
+    const deptMap = {};
+    deptRows.forEach(d => { deptMap[d.name.toLowerCase()] = d.id; });
+    const posMap = {};
+    posRows.forEach(p => { posMap[p.title.toLowerCase()] = p.id; });
+
+    // Get current employee count for ID generation
+    const countRes = await db.query('SELECT COUNT(*) FROM employees');
+    let empCount = parseInt(countRes.rows[0].count);
+
+    const results = { created: 0, errors: [] };
+    const leaveTypes = (await db.query('SELECT id, days_allowed FROM leave_types WHERE is_active = TRUE')).rows;
+    const year = new Date().getFullYear();
+
+    for (let idx = 0; idx < rows.length; idx++) {
+      const row = rows[idx];
+      const rowNum = idx + 2; // Excel row (1-indexed + header)
+      try {
+        if (!row.first_name || !row.last_name || !row.hire_date) {
+          results.errors.push({ row: rowNum, error: 'Missing first_name, last_name, or hire_date' });
+          continue;
+        }
+
+        // Check duplicate work_email
+        if (row.work_email) {
+          const dup = await db.query('SELECT id FROM users WHERE email = $1', [row.work_email]);
+          if (dup.rows.length) { results.errors.push({ row: rowNum, error: `Email ${row.work_email} already exists` }); continue; }
+        }
+
+        const email = row.work_email || row.personal_email;
+        if (!email) { results.errors.push({ row: rowNum, error: 'Either work_email or personal_email is required' }); continue; }
+
+        // Map department/position names to IDs
+        const department_id = row.department_name ? (deptMap[row.department_name.toLowerCase()] || null) : null;
+        const position_id = row.position_title ? (posMap[row.position_title.toLowerCase()] || null) : null;
+
+        empCount++;
+        const employee_id = `EMP${String(empCount).padStart(4, '0')}`;
+        const tempPassword = 'Welcome@123';
+        const hash = await bcrypt.hash(tempPassword, 10);
+
+        // Create user
+        const userRes = await db.query(
+          'INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3) RETURNING id',
+          [email, hash, 'employee']
+        );
+
+        // Format hire_date
+        let hire_date = row.hire_date;
+        if (typeof hire_date === 'number') {
+          // Excel serial date number
+          const d = XLSX.SSF.parse_date_code(hire_date);
+          hire_date = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+        }
+        let confirmation_date = row.confirmation_date || null;
+        if (typeof confirmation_date === 'number') {
+          const d = XLSX.SSF.parse_date_code(confirmation_date);
+          confirmation_date = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+        }
+        let date_of_birth = row.date_of_birth || null;
+        if (typeof date_of_birth === 'number') {
+          const d = XLSX.SSF.parse_date_code(date_of_birth);
+          date_of_birth = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+        }
+
+        // Insert employee
+        const empRes = await db.query(`
+          INSERT INTO employees (
+            user_id, employee_id, first_name, last_name, middle_name, date_of_birth, gender,
+            marital_status, nationality, national_id, passport_number, personal_email, work_email,
+            phone_primary, phone_secondary, address_line1, address_line2, city, state, country, postal_code,
+            emergency_contact_name, emergency_contact_relation, emergency_contact_phone,
+            department_id, position_id, employment_type, status, hire_date, confirmation_date,
+            work_location, bio,
+            bank_account_number, bank_name, iban, account_holder_name, insurance_card_number,
+            created_by
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+                    $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38)
+          RETURNING id
+        `, [
+          userRes.rows[0].id, employee_id, row.first_name, row.last_name, row.middle_name || null,
+          date_of_birth, row.gender || null, row.marital_status || null, row.nationality || null,
+          row.national_id || null, row.passport_number || null, row.personal_email || null,
+          row.work_email || null, row.phone_primary || null, row.phone_secondary || null,
+          row.address_line1 || null, row.address_line2 || null, row.city || null, row.state || null,
+          row.country || null, row.postal_code || null,
+          row.emergency_contact_name || null, row.emergency_contact_relation || null,
+          row.emergency_contact_phone || null,
+          department_id, position_id, row.employment_type || 'full_time', row.status || 'active',
+          hire_date, confirmation_date, row.work_location || null, row.bio || null,
+          row.bank_account_number || null, row.bank_name || null, row.iban || null,
+          row.account_holder_name || null, row.insurance_card_number || null,
+          req.user.id,
+        ]);
+
+        // Update department headcount
+        if (department_id) {
+          await db.query('UPDATE departments SET headcount = headcount + 1 WHERE id = $1', [department_id]);
+        }
+
+        // Create leave balances
+        for (const lt of leaveTypes) {
+          await db.query(
+            'INSERT INTO leave_balances (employee_id, leave_type_id, year, allocated_days) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING',
+            [empRes.rows[0].id, lt.id, year, lt.days_allowed]
+          );
+        }
+
+        results.created++;
+      } catch (rowErr) {
+        results.errors.push({ row: rowNum, error: rowErr.message });
+      }
+    }
+
+    res.json(results);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to process file: ' + err.message });
+  }
+});
+
+// GET /api/employees/export — download all employees as Excel
+router.get('/export', authorize('super_admin', 'hr_admin'), async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT e.employee_id, e.first_name, e.last_name, e.middle_name,
+        TO_CHAR(e.date_of_birth, 'YYYY-MM-DD') as date_of_birth, e.gender, e.marital_status,
+        e.nationality, e.national_id, e.passport_number, e.personal_email, e.work_email,
+        e.phone_primary, e.phone_secondary, e.address_line1, e.address_line2, e.city, e.state,
+        e.country, e.postal_code, e.emergency_contact_name, e.emergency_contact_relation,
+        e.emergency_contact_phone, d.name as department_name, p.title as position_title,
+        CONCAT(m.first_name, ' ', m.last_name) as manager_name,
+        e.employment_type, e.status, TO_CHAR(e.hire_date, 'YYYY-MM-DD') as hire_date,
+        TO_CHAR(e.confirmation_date, 'YYYY-MM-DD') as confirmation_date,
+        e.work_location, e.bio,
+        e.bank_account_number, e.bank_name, e.iban, e.account_holder_name, e.insurance_card_number,
+        TO_CHAR(e.created_at, 'YYYY-MM-DD') as created_at
+      FROM employees e
+      LEFT JOIN departments d ON d.id = e.department_id
+      LEFT JOIN positions p ON p.id = e.position_id
+      LEFT JOIN employees m ON m.id = e.manager_id
+      ORDER BY e.first_name, e.last_name
+    `);
+
+    // Mask banking for non-super-admin
+    if (req.user.role !== 'super_admin') {
+      result.rows.forEach(r => {
+        if (r.bank_account_number) r.bank_account_number = '•••• ' + r.bank_account_number.slice(-4);
+        if (r.iban) r.iban = r.iban.slice(0, 4) + ' •••• ' + r.iban.slice(-4);
+      });
+    }
+
+    const ws = XLSX.utils.json_to_sheet(result.rows);
+    const cols = Object.keys(result.rows[0] || {});
+    ws['!cols'] = cols.map(c => ({ wch: Math.max(c.length + 2, 16) }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Employees');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', 'attachment; filename=employees_data.xlsx');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buf);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to export' });
+  }
+});
 
 // GET /api/employees
 router.get('/', async (req, res) => {
@@ -234,8 +466,8 @@ router.put('/:id', async (req, res) => {
 
     // Only super_admin can update banking info
     const isBankingUpdate = bank_account_number !== undefined || bank_name !== undefined || iban !== undefined || account_holder_name !== undefined;
-    if (isBankingUpdate && req.user.role !== 'super_admin') {
-      return res.status(403).json({ error: 'Only Super Admin can update banking information' });
+    if (isBankingUpdate && !['super_admin', 'hr_admin'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Only Super Admin and HR can update banking information' });
     }
 
     const result = await db.query(`

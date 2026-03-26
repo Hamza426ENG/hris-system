@@ -6,15 +6,18 @@
  *
  * Runs every ZKTECO_SYNC_INTERVAL minutes (default 5, 0 = disabled).
  *
- * Punch pairing rules (ZKTeco state values):
- *   IN  states : 0 (Check In),   2 (Break In),    4 (Overtime In)
- *   OUT states : 1 (Check Out),  3 (Break Out),   5 (Overtime Out)
- *   null/unknown: treated as IN if it is the first punch of the day,
- *                 OUT if it is any subsequent punch.
+ * SHIFT-AWARE PAIRING (7 PM – 4 AM overnight shift):
  *
- * For each employee+date group:
- *   check_in  = earliest IN-state punch  (or earliest overall if none labelled)
- *   check_out = latest  OUT-state punch  (or latest overall if none labelled, and > check_in)
+ *   "Shift date" is the EVENING calendar date. A punch at 2 AM on March 26
+ *   belongs to the March 25 shift.
+ *
+ *   Boundary: punches with hour < SHIFT_DAY_CUTOFF (6 AM) are attributed to
+ *   the previous calendar day. Everything else stays on its calendar day.
+ *
+ *   Within each employee+shiftDate group:
+ *     check_in  = earliest punch (the evening entry)
+ *     check_out = latest  punch  (the early-morning exit)
+ *     work_hours = check_out − check_in
  */
 
 const db        = require('../db');
@@ -47,6 +50,12 @@ async function updateSyncStatus(deviceId, status, message, count) {
     [status, message, count, deviceId]
   );
 }
+
+// ── Shift configuration ──────────────────────────────────────────────────────
+// Punches with hour < SHIFT_DAY_CUTOFF belong to the PREVIOUS calendar day's
+// shift. This correctly groups a 7 PM check-in and 4 AM check-out under the
+// same "shift date" (the evening's calendar date).
+const SHIFT_DAY_CUTOFF = 6; // 6 AM — any punch 00:00–05:59 → previous day
 
 // ── ZKTeco state classification ──────────────────────────────────────────────
 const IN_STATES  = new Set([0, 2, 4]);   // Check In, Break In, Overtime In
@@ -100,10 +109,35 @@ async function syncDevice(device) {
   const result = { deviceId: device.id, deviceName: device.name, rawInserted: 0, attendanceSynced: 0 };
 
   try {
-    // 1. Pull logs from device
+    // 0. Find the latest punch already stored for this device so we only process NEW records
+    const latestRes = await db.query(
+      'SELECT MAX(punch_time) AS latest FROM device_attendance_raw WHERE device_id = $1',
+      [device.id]
+    );
+    const sinceDate = latestRes.rows[0].latest ? new Date(latestRes.rows[0].latest) : null;
+    if (sinceDate) {
+      console.log(`[Auto-Sync] ${device.name}: incremental sync — latest punch in DB: ${sinceDate.toISOString()}`);
+    } else {
+      console.log(`[Auto-Sync] ${device.name}: no existing data — full sync`);
+    }
+
+    // 1. Pull ALL logs from device (with retry logic in zktecoService)
     const logs = await zkService.getAttendanceLogs(device);
     if (!logs || logs.length === 0) {
-      await updateSyncStatus(device.id, 'success', 'No new logs on device', 0);
+      await updateSyncStatus(device.id, 'success', 'No logs returned from device', 0);
+      return result;
+    }
+
+    // 1b. Filter to only logs NEWER than what we already have in DB
+    //     This prevents re-processing thousands of old records on every sync
+    const newLogs = sinceDate
+      ? logs.filter(l => l.punchTime > sinceDate)
+      : logs;
+
+    console.log(`[Auto-Sync] ${device.name}: ${logs.length} from device, ${newLogs.length} new (after ${sinceDate ? sinceDate.toISOString() : 'beginning'})`);
+
+    if (newLogs.length === 0) {
+      await updateSyncStatus(device.id, 'success', `Incremental sync: 0 new punches (device has ${logs.length} total, all already stored)`, 0);
       return result;
     }
 
@@ -120,12 +154,11 @@ async function syncDevice(device) {
       [device.id]
     );
     if (unmappedRes.rows.length > 0) {
-      const empRes = await db.query('SELECT id, employee_id FROM employees WHERE is_active = TRUE');
+      const empRes = await db.query("SELECT id, employee_id FROM employees WHERE status = 'active'");
       for (const { device_user_id } of unmappedRes.rows) {
-        // Match: last 3+ digits of employee_id code (e.g., "EDGE-0370" → "370") === device_user_id
         const match = empRes.rows.find(e => {
-          const digits = (e.employee_id || '').replace(/\D/g, '');     // extract all digits
-          const suffix = digits.slice(-String(device_user_id).length); // last N digits matching device_user_id length
+          const digits = (e.employee_id || '').replace(/\D/g, '');
+          const suffix = digits.slice(-String(device_user_id).length);
           return suffix === String(device_user_id);
         });
         if (match) {
@@ -135,7 +168,6 @@ async function syncDevice(device) {
             [match.id, device.id, device_user_id]
           );
           userMap.set(device_user_id, match.id);
-          // Backfill existing raw logs
           await db.query(
             `UPDATE device_attendance_raw SET employee_id = $1
              WHERE device_id = $2 AND device_user_id = $3 AND employee_id IS NULL`,
@@ -145,8 +177,8 @@ async function syncDevice(device) {
       }
     }
 
-    // 3. Insert raw logs (deduplicated by UNIQUE constraint on device_id+user_id+punch_time)
-    for (const log of logs) {
+    // 3. Insert only NEW raw logs (deduplicated by UNIQUE constraint as safety net)
+    for (const log of newLogs) {
       const employeeId = userMap.get(log.deviceUserId) || null;
       try {
         const ins = await db.query(
@@ -169,7 +201,7 @@ async function syncDevice(device) {
     // 5. Update device sync status
     await updateSyncStatus(
       device.id, 'success',
-      `Auto-sync: ${result.rawInserted} new punches → ${result.attendanceSynced} attendance records`,
+      `Incremental sync: ${result.rawInserted} new punches → ${result.attendanceSynced} attendance records`,
       result.attendanceSynced
     );
 
@@ -304,15 +336,22 @@ async function pairPunchesToAttendance(deviceId) {
 
   if (rawResult.rows.length === 0) return 0;
 
-  // Group by employee_id + LOCAL date
-  // Use the punch_time value directly (stored as device local time by the ZK SDK)
+  // Group by employee_id + SHIFT date (not calendar date).
+  // Punches before SHIFT_DAY_CUTOFF (6 AM) belong to the previous calendar
+  // day's shift, so a 7 PM check-in and 4 AM check-out are grouped together.
   const groups = new Map();
   for (const row of rawResult.rows) {
     const pt = new Date(row.punch_time);
-    // Use local date string (YYYY-MM-DD) relative to the server/device timezone
-    const y  = pt.getFullYear();
-    const m  = String(pt.getMonth() + 1).padStart(2, '0');
-    const d  = String(pt.getDate()).padStart(2, '0');
+
+    // Determine the "shift date": if the punch is before 6 AM, roll back 1 day
+    let shiftDate = new Date(pt);
+    if (pt.getHours() < SHIFT_DAY_CUTOFF) {
+      shiftDate.setDate(shiftDate.getDate() - 1);
+    }
+
+    const y  = shiftDate.getFullYear();
+    const m  = String(shiftDate.getMonth() + 1).padStart(2, '0');
+    const d  = String(shiftDate.getDate()).padStart(2, '0');
     const dateStr = `${y}-${m}-${d}`;
 
     const key = `${row.employee_id}|${dateStr}`;

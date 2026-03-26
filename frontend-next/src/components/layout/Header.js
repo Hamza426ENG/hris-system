@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
-import { Menu, Bell, LogOut, User, ChevronDown, CheckCircle2, Clock, Megaphone, Sun, Moon, TicketCheck, Home } from 'lucide-react';
+import { Menu, Bell, LogOut, User, ChevronDown, CheckCircle2, Clock, Megaphone, Sun, Moon, TicketCheck, Home, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { leavesAPI, announcementsAPI, ticketsAPI } from '@/services/api';
@@ -178,7 +178,18 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
         <h1 className="text-base sm:text-lg font-semibold text-oe-text truncate">{title}</h1>
       </div>
 
-      <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+      <div className="flex items-center gap-1.5 sm:gap-2.5 flex-shrink-0">
+        {/* Page refresh — tiny pill, only on data-heavy pages */}
+        {['/', '/attendance', '/leaves', '/employees', '/tickets'].includes(router.pathname) && (
+          <button
+            onClick={() => router.replace(router.asPath)}
+            title="Refresh page"
+            className="w-7 h-7 flex items-center justify-center rounded-full text-oe-muted/60 hover:text-oe-primary hover:bg-oe-primary/10 transition-all"
+          >
+            <RefreshCw size={13} strokeWidth={2.5} />
+          </button>
+        )}
+
         {/* Dark mode toggle */}
         <button
           onClick={toggleTheme}
@@ -292,14 +303,12 @@ export default function Header({ sidebarOpen, setSidebarOpen }) {
                 <div className="text-sm font-medium text-oe-text">{user?.firstName} {user?.lastName}</div>
                 <div className="text-xs text-oe-muted">{user?.email}</div>
               </div>
-              {user?.employeeId && (
-                <button
-                  onClick={() => { router.push(`/employees/${user.employeeId}`); setMenuOpen(false); }}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-oe-muted hover:text-oe-text hover:bg-oe-bg transition-colors"
-                >
-                  <User size={14} /> My Profile
-                </button>
-              )}
+              <button
+                onClick={() => { router.push('/profile'); setMenuOpen(false); }}
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-oe-muted hover:text-oe-text hover:bg-oe-bg transition-colors"
+              >
+                <User size={14} /> My Profile
+              </button>
               <button
                 onClick={() => { logout(); router.push('/login'); setMenuOpen(false); }}
                 className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-oe-danger hover:bg-red-50 transition-colors"
