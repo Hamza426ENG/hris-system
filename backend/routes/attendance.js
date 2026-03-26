@@ -443,27 +443,49 @@ router.get('/summary/:employeeId', async (req, res) => {
     const agg = aggRes.rows[0];
 
     // ── Month-to-date leaves + absents ───────────────────────────────────
+    // Always scoped to current month regardless of selected period.
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-    const leavesRes = await db.query(
-      `SELECT COUNT(*) AS leave_count
-       FROM leave_requests
-       WHERE employee_id = $1
-         AND status = 'approved'
-         AND start_date <= $3
-         AND end_date >= $2`,
-      [employeeId, monthStart, endDate]
-    );
-    const leaveCount = parseInt(leavesRes.rows[0]?.leave_count || 0);
+    const todayStr   = now.toISOString().split('T')[0];
 
-    // Count working days in period (Mon-Fri)
+    // Count actual LEAVE DAYS (not requests) that fall within this month.
+    // A leave request spanning Mar 10–15 contributes 4 working days to Mar,
+    // not 1 request. We generate each day of the overlap and count Mon-Fri.
+    const leavesRes = await db.query(
+      `SELECT COUNT(*) AS leave_days
+       FROM leave_requests lr,
+            LATERAL generate_series(
+              GREATEST(lr.start_date, $2::date),
+              LEAST(lr.end_date, $3::date),
+              '1 day'
+            ) d
+       WHERE lr.employee_id = $1
+         AND lr.status = 'approved'
+         AND lr.start_date <= $3
+         AND lr.end_date   >= $2
+         AND EXTRACT(DOW FROM d) BETWEEN 1 AND 5`,
+      [employeeId, monthStart, todayStr]
+    );
+    const leaveCount = parseInt(leavesRes.rows[0]?.leave_days || 0);
+
+    // Count working days (Mon-Fri) from month start to today
     const workingDaysRes = await db.query(
       `SELECT COUNT(*) AS wd
        FROM generate_series($1::date, $2::date, '1 day') d
        WHERE EXTRACT(DOW FROM d) BETWEEN 1 AND 5`,
-      [monthStart, endDate]
+      [monthStart, todayStr]
     );
     const totalWorkingDays = parseInt(workingDaysRes.rows[0]?.wd || 0);
-    const presentDays = parseInt(agg.total_present_days || 0);
+
+    // Present days MUST also be scoped to the current month (not the selected period)
+    const monthPresentRes = await db.query(
+      `SELECT COUNT(*) AS cnt
+       FROM attendance_records
+       WHERE employee_id = $1
+         AND date >= $2 AND date <= $3
+         AND check_in IS NOT NULL`,
+      [employeeId, monthStart, todayStr]
+    );
+    const presentDays = parseInt(monthPresentRes.rows[0]?.cnt || 0);
     const absentDays = Math.max(0, totalWorkingDays - presentDays - leaveCount);
 
     // ── Last 30 days aggregates (always computed for the "Last 30 Days" section) ──
