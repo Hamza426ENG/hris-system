@@ -35,6 +35,7 @@ function emitUpdate(employeeId, record) {
 
 let syncTimer = null;
 let isSyncing = false;
+let syncScheduled = false;
 
 // ── Sync status helper ───────────────────────────────────────────────────────
 
@@ -52,10 +53,46 @@ async function updateSyncStatus(deviceId, status, message, count) {
 }
 
 // ── Shift configuration ──────────────────────────────────────────────────────
-// Punches with hour < SHIFT_DAY_CUTOFF belong to the PREVIOUS calendar day's
-// shift. This correctly groups a 7 PM check-in and 4 AM check-out under the
-// same "shift date" (the evening's calendar date).
-const SHIFT_DAY_CUTOFF = 6; // 6 AM — any punch 00:00–05:59 → previous day
+// Punches with device-local hour < SHIFT_DAY_CUTOFF belong to the PREVIOUS
+// calendar day's shift. This groups a 7 PM check-in and 4 AM check-out under
+// the same shift date (the evening's calendar date).
+// The cutoff is applied in the DEVICE timezone, not UTC.
+const SHIFT_DAY_CUTOFF  = 6; // 6 AM device-local — punches 00:00–05:59 → previous day
+const DEVICE_TIMEZONE   = process.env.ZKTECO_DEVICE_TIMEZONE || 'Asia/Karachi';
+
+/**
+ * Convert a UTC Date to a shift-date string (YYYY-MM-DD) in the device's
+ * local timezone, rolling back one day for punches before SHIFT_DAY_CUTOFF.
+ *
+ * Uses Intl.DateTimeFormat so it respects DST and any IANA timezone name.
+ */
+function getPunchShiftDate(utcDate) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: DEVICE_TIMEZONE,
+    year:     'numeric',
+    month:    '2-digit',
+    day:      '2-digit',
+    hour:     'numeric',
+    hour12:   false,
+  }).formatToParts(utcDate);
+
+  const get = type => parseInt(parts.find(p => p.type === type)?.value || '0', 10);
+
+  let year  = get('year');
+  let month = get('month'); // 1-based
+  let day   = get('day');
+  const hour = get('hour');
+
+  if (hour < SHIFT_DAY_CUTOFF) {
+    // Roll back one calendar day in device timezone
+    const prev = new Date(Date.UTC(year, month - 1, day - 1));
+    year  = prev.getUTCFullYear();
+    month = prev.getUTCMonth() + 1;
+    day   = prev.getUTCDate();
+  }
+
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
 
 // ── ZKTeco state classification ──────────────────────────────────────────────
 const IN_STATES  = new Set([0, 2, 4]);   // Check In, Break In, Overtime In
@@ -296,36 +333,107 @@ function start() {
   const intervalMs = intervalMinutes * 60 * 1000;
   console.log(`[Auto-Sync] Scheduled every ${intervalMinutes} minutes (set ZKTECO_SYNC_INTERVAL in .env to change)`);
 
-  // Clean bad dates on startup before first sync
-  cleanFutureDates().then(() => {
-    // First sync after 10 s so server finishes booting
-    setTimeout(runSyncCycle, 10_000);
-  });
+  // Recursive scheduler: each cycle fires exactly intervalMs after the
+  // previous one COMPLETES, so a slow sync never causes skipped cycles.
+  async function scheduleNext() {
+    await runSyncCycle();
+    if (syncScheduled) {
+      syncTimer = setTimeout(scheduleNext, intervalMs);
+    }
+  }
 
-  syncTimer = setInterval(runSyncCycle, intervalMs);
+  syncScheduled = true;
+
+  // On startup: clean future-date garbage, then repair any recently misattributed
+  // records (timezone fix), then begin the normal sync cycle.
+  cleanFutureDates()
+    .then(() => repairRecentAttendance())
+    .then(() => {
+      // Short delay (10 s) so the server finishes booting before first live sync
+      syncTimer = setTimeout(scheduleNext, 10_000);
+    });
 }
 
 function stop() {
+  syncScheduled = false;
   if (syncTimer) {
-    clearInterval(syncTimer);
+    clearTimeout(syncTimer);
     syncTimer = null;
     console.log('[Auto-Sync] Stopped');
+  }
+}
+
+// ── Startup repair ────────────────────────────────────────────────────────────
+
+/**
+ * One-time startup repair: re-process all raw punches from the last
+ * REPAIR_DAYS days so that attendance records are recalculated with the
+ * correct timezone-aware shift-date logic.
+ *
+ * Clears ONLY device-sourced attendance records for the repair window;
+ * manual records are never touched.
+ */
+const REPAIR_DAYS = 7;
+
+async function repairRecentAttendance() {
+  try {
+    const since = new Date();
+    since.setDate(since.getDate() - REPAIR_DAYS);
+
+    // Reset sync flag for recent raw punches so pairPunchesToAttendance re-processes them
+    const resetRes = await db.query(
+      `UPDATE device_attendance_raw
+       SET synced_to_attendance = FALSE
+       WHERE punch_time >= $1 AND employee_id IS NOT NULL
+       RETURNING id`,
+      [since]
+    );
+
+    // Remove device-sourced attendance records for the same window
+    // (manual entries are preserved)
+    const deleteRes = await db.query(
+      `DELETE FROM attendance_records
+       WHERE source = 'device' AND date >= $1::date
+       RETURNING id`,
+      [since]
+    );
+
+    console.log(`[Repair] Reset ${resetRes.rowCount} raw-punch flags, removed ${deleteRes.rowCount} device attendance records — re-pairing now...`);
+
+    // Re-pair for every active device
+    const devicesRes = await db.query('SELECT * FROM device_connections WHERE is_active = TRUE');
+    for (const device of devicesRes.rows) {
+      const synced = await pairPunchesToAttendance(device.id);
+      console.log(`[Repair] ${device.name}: re-created ${synced} attendance records`);
+    }
+
+    console.log('[Repair] Attendance repair complete.');
+  } catch (err) {
+    console.error('[Repair] Attendance repair failed:', err.message);
   }
 }
 
 // ── Core pairing function ─────────────────────────────────────────────────────
 
 /**
- * Reads all unsynced raw punches for a device that have an employee mapping,
- * groups them by employee+date, resolves check_in/check_out using punch_state,
- * upserts into attendance_records, then marks raw rows as synced.
+ * Groups all raw punches for the given device into employee+shift-date buckets,
+ * resolves check_in / check_out for each bucket, and upserts attendance_records.
+ *
+ * Key design decisions:
+ *  1. Shift date uses device-local timezone (getPunchShiftDate) — not UTC hours.
+ *  2. For each employee+date that has NEW unsynced punches, ALL raw punches
+ *     (synced + unsynced) are included in resolvePair so a check-out that
+ *     arrives in a later sync cycle still pairs correctly with the already-
+ *     synced check-in from a previous cycle.
+ *  3. Only the newly unsynced raw IDs are marked synced — already-synced rows
+ *     are not touched.
  *
  * Returns the number of attendance records created/updated.
  */
 async function pairPunchesToAttendance(deviceId) {
-  // Fetch unsynced punches — include punch_state this time
-  const rawResult = await db.query(
-    `SELECT r.id, r.employee_id, r.punch_time, r.punch_state, r.device_id
+  // 1. Find all unsynced punches → identify which employee+shift-dates need work
+  const unsyncedResult = await db.query(
+    `SELECT r.id, r.employee_id, r.punch_time, r.punch_state
      FROM device_attendance_raw r
      WHERE r.device_id = $1
        AND r.employee_id IS NOT NULL
@@ -334,39 +442,60 @@ async function pairPunchesToAttendance(deviceId) {
     [deviceId]
   );
 
-  if (rawResult.rows.length === 0) return 0;
+  if (unsyncedResult.rows.length === 0) return 0;
 
-  // Group by employee_id + SHIFT date (not calendar date).
-  // Punches before SHIFT_DAY_CUTOFF (6 AM) belong to the previous calendar
-  // day's shift, so a 7 PM check-in and 4 AM check-out are grouped together.
-  const groups = new Map();
-  for (const row of rawResult.rows) {
-    const pt = new Date(row.punch_time);
+  // Build: key ("employeeId|shiftDate") → [ raw_id, ... ] for newly unsynced rows
+  const newRawIdsByKey = new Map();
+  const affectedKeys   = new Set();
 
-    // Determine the "shift date": if the punch is before 6 AM, roll back 1 day
-    let shiftDate = new Date(pt);
-    if (pt.getHours() < SHIFT_DAY_CUTOFF) {
-      shiftDate.setDate(shiftDate.getDate() - 1);
-    }
-
-    const y  = shiftDate.getFullYear();
-    const m  = String(shiftDate.getMonth() + 1).padStart(2, '0');
-    const d  = String(shiftDate.getDate()).padStart(2, '0');
-    const dateStr = `${y}-${m}-${d}`;
-
-    const key = `${row.employee_id}|${dateStr}`;
-    if (!groups.has(key)) {
-      groups.set(key, { employee_id: row.employee_id, date: dateStr, punches: [], rawIds: [] });
-    }
-    const g = groups.get(key);
-    g.punches.push({ punchTime: pt, punchState: row.punch_state });
-    g.rawIds.push(row.id);
+  for (const row of unsyncedResult.rows) {
+    const shiftDate = getPunchShiftDate(new Date(row.punch_time));
+    const key = `${row.employee_id}|${shiftDate}`;
+    affectedKeys.add(key);
+    if (!newRawIdsByKey.has(key)) newRawIdsByKey.set(key, []);
+    newRawIdsByKey.get(key).push(row.id);
   }
 
+  // 2. For every affected employee, fetch ALL raw punches (synced + unsynced).
+  //    This is critical: when check-in was synced in a previous cycle, it must
+  //    be included here so resolvePair can produce the correct check_out.
+  const affectedEmployeeIds = [...new Set([...affectedKeys].map(k => k.split('|')[0]))];
+
+  const allPunchesResult = await db.query(
+    `SELECT r.employee_id, r.punch_time, r.punch_state
+     FROM device_attendance_raw r
+     WHERE r.device_id = $1
+       AND r.employee_id = ANY($2)
+     ORDER BY r.employee_id, r.punch_time ASC`,
+    [deviceId, affectedEmployeeIds]
+  );
+
+  // 3. Re-group ALL punches — only keep groups that have new unsynced punches
+  const groups = new Map();
+
+  for (const row of allPunchesResult.rows) {
+    const shiftDate = getPunchShiftDate(new Date(row.punch_time));
+    const key = `${row.employee_id}|${shiftDate}`;
+    if (!affectedKeys.has(key)) continue; // skip dates with no new punches
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        employee_id: row.employee_id,
+        date:        shiftDate,
+        punches:     [],
+        rawIds:      newRawIdsByKey.get(key) || [],
+      });
+    }
+    groups.get(key).punches.push({ punchTime: new Date(row.punch_time), punchState: row.punch_state });
+  }
+
+  // 4. Upsert each group's resolved check_in / check_out
   let synced = 0;
   for (const [, group] of groups) {
     const { employee_id, date, punches, rawIds } = group;
     const { checkIn, checkOut, workHours } = resolvePair(punches);
+
+    console.log(`[Pair] ${employee_id} ${date}: ${punches.length} punches → in=${checkIn?.toISOString() ?? 'null'} out=${checkOut?.toISOString() ?? 'null'}`);
 
     try {
       await db.query(
@@ -375,32 +504,23 @@ async function pairPunchesToAttendance(deviceId) {
          VALUES ($1, $2, $3, $4, $5, 'present', 'device', $6, NOW())
          ON CONFLICT (employee_id, date)
          DO UPDATE SET
-           check_in   = LEAST(attendance_records.check_in, EXCLUDED.check_in),
-           check_out  = CASE
-             WHEN EXCLUDED.check_out IS NOT NULL
-             THEN GREATEST(COALESCE(attendance_records.check_out, EXCLUDED.check_out), EXCLUDED.check_out)
-             ELSE attendance_records.check_out
-           END,
-           work_hours = CASE
-             WHEN EXCLUDED.check_out IS NOT NULL AND EXCLUDED.check_in IS NOT NULL
-             THEN ROUND(EXTRACT(EPOCH FROM (
-               GREATEST(COALESCE(attendance_records.check_out, EXCLUDED.check_out), EXCLUDED.check_out) -
-               LEAST(attendance_records.check_in, EXCLUDED.check_in)
-             )) / 3600, 2)
-             ELSE attendance_records.work_hours
-           END,
+           -- Preserve manual records; overwrite device records with fresh resolvePair result
+           check_in   = CASE WHEN attendance_records.source = 'manual' THEN attendance_records.check_in  ELSE EXCLUDED.check_in  END,
+           check_out  = CASE WHEN attendance_records.source = 'manual' THEN attendance_records.check_out ELSE EXCLUDED.check_out END,
+           work_hours = CASE WHEN attendance_records.source = 'manual' THEN attendance_records.work_hours ELSE EXCLUDED.work_hours END,
+           status     = CASE WHEN attendance_records.source = 'manual' THEN attendance_records.status ELSE 'present' END,
            source     = CASE WHEN attendance_records.source = 'manual' THEN 'manual' ELSE 'device' END,
            device_id  = COALESCE(attendance_records.device_id, EXCLUDED.device_id),
            updated_at = NOW()`,
         [employee_id, date, checkIn, checkOut, workHours, deviceId]
       );
 
+      // Only mark the NEW unsynced raw rows as synced
       await db.query(
         'UPDATE device_attendance_raw SET synced_to_attendance = TRUE WHERE id = ANY($1)',
         [rawIds]
       );
 
-      // Broadcast to SSE clients
       emitUpdate(employee_id, { employee_id, date, check_in: checkIn, check_out: checkOut, work_hours: workHours, source: 'device' });
       synced++;
     } catch (err) {

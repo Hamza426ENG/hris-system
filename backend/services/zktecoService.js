@@ -27,8 +27,7 @@ function createInstance(device) {
   return new ZKLib(
     device.ip_address,
     device.port || 4370,
-    device.connection_timeout || 60000, // 60 s — matches reference server config
-    4000 // inactivity timeout
+    300000 // 5-minute timeout — long enough for large log sets, prevents 0ms instant-timeout
   );
 }
 
@@ -158,8 +157,7 @@ async function getAttendanceLogs(device) {
     const zk = new (require('node-zklib'))(
       device.ip_address,
       device.port || 4370,
-      60000,  // connection timeout 60s
-      4000    // inactivity timeout
+      300000  // 5-minute timeout — large enough for full log dumps without instant-timeout from setTimeout(fn,0)
     );
 
     try {
@@ -201,12 +199,14 @@ async function getAttendanceLogs(device) {
       await new Promise(r => setTimeout(r, 2000));
       console.log(`[ZKTeco] ${device.name}: retrying fetch (attempt ${attempt + 1} of ${MAX_ATTEMPTS})...`);
     } catch (err) {
-      console.warn(`[ZKTeco] ${device.name}: attempt ${attempt} error: ${err.message}`);
+      // ZKError wraps the real error in .err — fall back gracefully
+      const msg = err?.err?.message || err?.message || String(err);
+      console.warn(`[ZKTeco] ${device.name}: attempt ${attempt} error: ${msg}`);
       try { await zk.disconnect(); } catch { /* ignore */ }
       if (attempt < MAX_ATTEMPTS) {
         await new Promise(r => setTimeout(r, 2000));
       } else if (bestRaw.length === 0) {
-        throw err;
+        throw new Error(msg);
       }
     }
   }
