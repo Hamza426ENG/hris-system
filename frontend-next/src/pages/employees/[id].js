@@ -90,7 +90,7 @@ function EmployeeProfileContent() {
   const [avatarUploading, setAvatarUploading] = useState(false);
   const avatarInputRef = useRef(null);
 
-  const [editModal, setEditModal] = useState(false);
+  const [editSection, setEditSection] = useState(null); // null | 'personal' | 'employment' | 'contact' | 'address' | 'emergency' | 'additional' | 'banking'
   const [editForm, setEditForm] = useState({});
   const [editSaving, setEditSaving] = useState(false);
   const [myRequests, setMyRequests] = useState([]);
@@ -113,80 +113,51 @@ function EmployeeProfileContent() {
   const isHR = permissions?.canManageAll;
   const isSelf = user?.employeeId === id;
 
-  const openEditProfile = () => {
+  const SECTION_FIELDS = {
+    personal: ['first_name', 'last_name', 'middle_name', 'date_of_birth', 'gender', 'marital_status', 'nationality', 'national_id'],
+    employment: ['work_email', 'department_id', 'position_id', 'manager_id', 'employment_type', 'hire_date', 'work_location', 'status'],
+    contact: ['phone_primary', 'phone_secondary', 'personal_email'],
+    address: ['address_line1', 'city', 'state', 'country', 'postal_code'],
+    emergency: ['emergency_contact_name', 'emergency_contact_relation', 'emergency_contact_phone'],
+    additional: ['bio', 'insurance_card_number'],
+    banking: ['bank_name', 'bank_account_number', 'account_holder_name', 'iban'],
+  };
+  const DATE_FIELDS = ['date_of_birth', 'hire_date'];
+
+  const openSectionEdit = (section) => {
     if (!emp) return;
-    if (isHR) {
-      // Load departments and positions for dropdowns
+    if (section === 'employment') {
       departmentsAPI.list().then(r => setDepartments(r.data || [])).catch(() => {});
       positionsAPI.list().then(r => setPositions(r.data?.data || r.data || [])).catch(() => {});
     }
-    setEditForm({
-      // Personal Info (HR editable)
-      first_name: emp.first_name || '',
-      last_name: emp.last_name || '',
-      middle_name: emp.middle_name || '',
-      date_of_birth: emp.date_of_birth ? emp.date_of_birth.split('T')[0] : '',
-      gender: emp.gender || '',
-      marital_status: emp.marital_status || '',
-      nationality: emp.nationality || '',
-      national_id: emp.national_id || '',
-      // Work Info (HR editable)
-      work_email: emp.work_email || '',
-      department_id: emp.department_id || '',
-      position_id: emp.position_id || '',
-      manager_id: emp.manager_id || '',
-      employment_type: emp.employment_type || '',
-      hire_date: emp.hire_date ? emp.hire_date.split('T')[0] : '',
-      work_location: emp.work_location || '',
-      status: emp.status || '',
-      // Contact
-      phone_primary: emp.phone_primary || '',
-      phone_secondary: emp.phone_secondary || '',
-      personal_email: emp.personal_email || '',
-      // Address
-      address_line1: emp.address_line1 || '',
-      city: emp.city || '',
-      state: emp.state || '',
-      country: emp.country || '',
-      postal_code: emp.postal_code || '',
-      // Emergency Contact
-      emergency_contact_name: emp.emergency_contact_name || '',
-      emergency_contact_relation: emp.emergency_contact_relation || '',
-      emergency_contact_phone: emp.emergency_contact_phone || '',
-      // Other
-      bio: emp.bio || '',
-      insurance_card_number: emp.insurance_card_number || '',
-      // Banking — only super_admin can edit these
-      bank_name: emp.bank_name || '',
-      bank_account_number: emp.bank_account_number || '',
-      account_holder_name: emp.account_holder_name || '',
-      iban: emp.iban || '',
+    const fields = SECTION_FIELDS[section] || [];
+    const form = {};
+    fields.forEach(f => {
+      form[f] = DATE_FIELDS.includes(f) && emp[f] ? emp[f].split('T')[0] : (emp[f] || '');
     });
-    setEditModal(true);
+    setEditForm(form);
+    setEditSection(section);
   };
 
   const handleEditSave = async () => {
     setEditSaving(true);
     try {
       if (isHR) {
-        // Send full merged payload so all required backend fields are always present
         const payload = { ...emp, ...editForm };
         await employeesAPI.update(id, payload);
-        // Re-fetch to get joined fields (department_name, position_title etc.)
         const res = await employeesAPI.get(id);
         setEmp(res.data);
-        setEditModal(false);
+        setEditSection(null);
       } else {
-        // Employee: detect only changed fields and submit for HR approval
         const changes = {};
         for (const key of Object.keys(editForm)) {
           const empVal = emp[key] != null ? String(emp[key]) : '';
           const formVal = editForm[key] != null ? String(editForm[key]) : '';
           if (formVal !== empVal) changes[key] = editForm[key];
         }
-        if (Object.keys(changes).length === 0) { setEditModal(false); return; }
+        if (Object.keys(changes).length === 0) { setEditSection(null); return; }
         await profileRequestsAPI.create({ employee_id: id, changes });
-        setEditModal(false);
+        setEditSection(null);
         alert('Your profile update request has been submitted for HR approval.');
         loadMyRequests();
       }
@@ -385,11 +356,7 @@ function EmployeeProfileContent() {
                 {emp.city && <span className="flex items-center gap-1.5"><MapPin size={13} className="flex-shrink-0" /> {emp.city}{emp.country ? `, ${emp.country}` : ''}</span>}
                 <span className="flex items-center gap-1.5"><Calendar size={13} className="flex-shrink-0" /> Joined {fmtDate(emp.hire_date)}</span>
               </div>
-              {(isSelf || isHR) && (
-                <button onClick={openEditProfile} className="btn-secondary mt-3 text-xs gap-1.5">
-                  <Edit size={13} /> {isHR ? 'Edit Profile' : 'Request Profile Update'}
-                </button>
-              )}
+              {/* Section-level edit buttons are on each detail section below */}
             </div>
 
             {/* Salary badge */}
@@ -404,10 +371,17 @@ function EmployeeProfileContent() {
         </div>
 
         {/* ── Bio ──────────────────────────────────────────────────── */}
-        {emp.bio && (
+        {(emp.bio || isSelf || isHR) && (
           <div className="px-5 sm:px-6 pt-5">
             <div className="p-3 rounded-lg bg-oe-surface/50 border border-oe-border/30">
-              <p className="text-sm text-oe-text leading-relaxed">{emp.bio}</p>
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-sm text-oe-text leading-relaxed flex-1">{emp.bio || <span className="text-oe-muted/40">No bio added yet</span>}</p>
+                {(isSelf || isHR) && (
+                  <button onClick={() => openSectionEdit('additional')} className="p-1 rounded hover:bg-oe-surface text-oe-muted hover:text-oe-primary transition-colors flex-shrink-0" title="Edit Bio & Additional Info">
+                    <Edit size={12} />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -418,7 +392,14 @@ function EmployeeProfileContent() {
 
             {/* Personal Details */}
             <div>
-              <h4 className="text-xs font-bold text-oe-muted uppercase tracking-wider mb-3 pb-2 border-b border-oe-border/40">Personal Details</h4>
+              <div className="flex items-center justify-between mb-3 pb-2 border-b border-oe-border/40">
+                <h4 className="text-xs font-bold text-oe-muted uppercase tracking-wider">Personal Details</h4>
+                {(isSelf || isHR) && (
+                  <button onClick={() => openSectionEdit('personal')} className="p-1 rounded hover:bg-oe-surface text-oe-muted hover:text-oe-primary transition-colors" title="Edit Personal Details">
+                    <Edit size={12} />
+                  </button>
+                )}
+              </div>
               <div className="space-y-0.5">
                 <DetailRow icon={Calendar} label="Date of Birth" value={emp.date_of_birth ? `${fmtDateShort(emp.date_of_birth)}${age ? ` (${age} yrs)` : ''}` : null} />
                 <DetailRow icon={User} label="Gender" value={fmtType(emp.gender)} iconColor="text-oe-purple" />
@@ -432,7 +413,14 @@ function EmployeeProfileContent() {
 
             {/* Employment Details */}
             <div>
-              <h4 className="text-xs font-bold text-oe-muted uppercase tracking-wider mb-3 pb-2 border-b border-oe-border/40">Employment Details</h4>
+              <div className="flex items-center justify-between mb-3 pb-2 border-b border-oe-border/40">
+                <h4 className="text-xs font-bold text-oe-muted uppercase tracking-wider">Employment Details</h4>
+                {(isSelf || isHR) && (
+                  <button onClick={() => openSectionEdit('employment')} className="p-1 rounded hover:bg-oe-surface text-oe-muted hover:text-oe-primary transition-colors" title="Edit Employment Details">
+                    <Edit size={12} />
+                  </button>
+                )}
+              </div>
               <div className="space-y-0.5">
                 <DetailRow icon={Building} label="Department" value={emp.department_name} iconColor="text-oe-purple" />
                 <DetailRow icon={Briefcase} label="Position" value={emp.position_title} iconColor="text-oe-success" />
@@ -449,16 +437,37 @@ function EmployeeProfileContent() {
 
             {/* Contact & Emergency */}
             <div>
-              <h4 className="text-xs font-bold text-oe-muted uppercase tracking-wider mb-3 pb-2 border-b border-oe-border/40">Contact & Emergency</h4>
+              <div className="flex items-center justify-between mb-3 pb-2 border-b border-oe-border/40">
+                <h4 className="text-xs font-bold text-oe-muted uppercase tracking-wider">Contact & Emergency</h4>
+                {(isSelf || isHR) && (
+                  <button onClick={() => openSectionEdit('contact')} className="p-1 rounded hover:bg-oe-surface text-oe-muted hover:text-oe-primary transition-colors" title="Edit Contact Info">
+                    <Edit size={12} />
+                  </button>
+                )}
+              </div>
               <div className="space-y-0.5">
                 <DetailRow icon={Mail} label="Personal Email" value={emp.personal_email} iconColor="text-oe-purple" />
                 <DetailRow icon={Phone} label="Secondary Phone" value={emp.phone_secondary} iconColor="text-oe-warning" />
-                <DetailRow icon={MapPin} label="Address" value={fullAddress || null} iconColor="text-oe-cyan" />
+                <div className="flex items-center justify-between">
+                  <div className="flex-1"><DetailRow icon={MapPin} label="Address" value={fullAddress || null} iconColor="text-oe-cyan" /></div>
+                  {(isSelf || isHR) && (
+                    <button onClick={() => openSectionEdit('address')} className="p-1 rounded hover:bg-oe-surface text-oe-muted hover:text-oe-primary transition-colors flex-shrink-0" title="Edit Address">
+                      <Edit size={11} />
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Emergency Contact — always visible */}
               <div className="mt-4 p-3 rounded-lg bg-oe-danger/5 border border-oe-danger/15">
-                <div className="text-[11px] text-oe-danger uppercase tracking-wide font-bold mb-1.5">Emergency Contact</div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="text-[11px] text-oe-danger uppercase tracking-wide font-bold">Emergency Contact</div>
+                  {(isSelf || isHR) && (
+                    <button onClick={() => openSectionEdit('emergency')} className="p-1 rounded hover:bg-oe-danger/10 text-oe-muted hover:text-oe-danger transition-colors" title="Edit Emergency Contact">
+                      <Edit size={11} />
+                    </button>
+                  )}
+                </div>
                 {emp.emergency_contact_name ? (
                   <>
                     <div className="text-sm text-oe-text font-semibold">{emp.emergency_contact_name}</div>
@@ -487,7 +496,14 @@ function EmployeeProfileContent() {
             {/* Banking & Finance — always visible to self and HR/admin */}
             {(isHR || isSelf) && (
               <div>
-                <h4 className="text-xs font-bold text-oe-muted uppercase tracking-wider mb-3 pb-2 border-b border-oe-border/40">Banking & Finance</h4>
+                <div className="flex items-center justify-between mb-3 pb-2 border-b border-oe-border/40">
+                  <h4 className="text-xs font-bold text-oe-muted uppercase tracking-wider">Banking & Finance</h4>
+                  {(isSelf || user?.role === 'super_admin') && (
+                    <button onClick={() => openSectionEdit('banking')} className="p-1 rounded hover:bg-oe-surface text-oe-muted hover:text-oe-primary transition-colors" title="Edit Banking Info">
+                      <Edit size={12} />
+                    </button>
+                  )}
+                </div>
                 <div className="space-y-0.5">
                   <DetailRow icon={Landmark} label="Bank Name" value={emp.bank_name} iconColor="text-oe-primary" />
                   <DetailRow icon={User} label="Account Holder" value={emp.account_holder_name} iconColor="text-oe-muted" />
@@ -1108,9 +1124,17 @@ function EmployeeProfileContent() {
         </div>
       </Modal>
 
-      {/* Edit Profile Modal */}
-      <Modal open={editModal} onClose={() => setEditModal(false)} title={isHR ? 'Edit Profile' : 'Request Profile Update'} size="lg">
-        <div className="p-5 space-y-6">
+      {/* Section Edit Modal */}
+      <Modal open={!!editSection} onClose={() => setEditSection(null)} title={
+        editSection === 'personal' ? (isHR ? 'Edit Personal Details' : 'Request Personal Details Update') :
+        editSection === 'employment' ? (isHR ? 'Edit Employment Details' : 'Request Employment Details Update') :
+        editSection === 'contact' ? (isHR ? 'Edit Contact Information' : 'Request Contact Update') :
+        editSection === 'address' ? (isHR ? 'Edit Address' : 'Request Address Update') :
+        editSection === 'emergency' ? (isHR ? 'Edit Emergency Contact' : 'Request Emergency Contact Update') :
+        editSection === 'additional' ? (isHR ? 'Edit Additional Info' : 'Request Additional Info Update') :
+        editSection === 'banking' ? (user?.role === 'super_admin' ? 'Edit Banking Information' : 'Request Banking Update') : 'Edit Profile'
+      } size="md">
+        <div className="p-5 space-y-4">
           {!isHR && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700 dark:bg-amber-900/20 dark:border-amber-700/40 dark:text-amber-400 flex items-start gap-2">
               <AlertTriangle size={13} className="mt-0.5 flex-shrink-0" />
@@ -1118,120 +1142,98 @@ function EmployeeProfileContent() {
             </div>
           )}
 
-          {/* Personal Information — HR only */}
-          {isHR && (
-            <section>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-5 h-5 rounded bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center flex-shrink-0">
-                  <User size={11} className="text-violet-600 dark:text-violet-400" />
-                </div>
-                <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider">Personal Information</h4>
+          {/* Personal Information */}
+          {editSection === 'personal' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="label">First Name *</label>
+                <input className="input" value={editForm.first_name || ''} onChange={e => setEditForm({ ...editForm, first_name: e.target.value })} />
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="label">First Name *</label>
-                  <input className="input" value={editForm.first_name || ''} onChange={e => setEditForm({ ...editForm, first_name: e.target.value })} />
-                </div>
-                <div>
-                  <label className="label">Middle Name</label>
-                  <input className="input" value={editForm.middle_name || ''} onChange={e => setEditForm({ ...editForm, middle_name: e.target.value })} />
-                </div>
-                <div>
-                  <label className="label">Last Name *</label>
-                  <input className="input" value={editForm.last_name || ''} onChange={e => setEditForm({ ...editForm, last_name: e.target.value })} />
-                </div>
-                <div>
-                  <label className="label">Date of Birth</label>
-                  <input type="date" className="input" value={editForm.date_of_birth || ''} onChange={e => setEditForm({ ...editForm, date_of_birth: e.target.value })} />
-                </div>
-                <div>
-                  <label className="label">Gender</label>
-                  <select className="input" value={editForm.gender || ''} onChange={e => setEditForm({ ...editForm, gender: e.target.value })}>
-                    <option value="">Select...</option>
-                    {(GENDERS || []).map(g => <option key={g} value={g}>{g.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Marital Status</label>
-                  <select className="input" value={editForm.marital_status || ''} onChange={e => setEditForm({ ...editForm, marital_status: e.target.value })}>
-                    <option value="">Select...</option>
-                    {(MARITAL || []).map(m => <option key={m} value={m}>{m.replace(/\b\w/g, c => c.toUpperCase())}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Nationality</label>
-                  <input className="input" placeholder="e.g. Pakistani" value={editForm.nationality || ''} onChange={e => setEditForm({ ...editForm, nationality: e.target.value })} />
-                </div>
-                <div>
-                  <label className="label">National ID / CNIC</label>
-                  <input className="input" value={editForm.national_id || ''} onChange={e => setEditForm({ ...editForm, national_id: e.target.value })} />
-                </div>
+              <div>
+                <label className="label">Last Name *</label>
+                <input className="input" value={editForm.last_name || ''} onChange={e => setEditForm({ ...editForm, last_name: e.target.value })} />
               </div>
-            </section>
+              <div className="sm:col-span-2">
+                <label className="label">Middle Name</label>
+                <input className="input" value={editForm.middle_name || ''} onChange={e => setEditForm({ ...editForm, middle_name: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">Date of Birth</label>
+                <input type="date" className="input" value={editForm.date_of_birth || ''} onChange={e => setEditForm({ ...editForm, date_of_birth: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">Gender</label>
+                <select className="input" value={editForm.gender || ''} onChange={e => setEditForm({ ...editForm, gender: e.target.value })}>
+                  <option value="">Select...</option>
+                  {(GENDERS || []).map(g => <option key={g} value={g}>{g.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Marital Status</label>
+                <select className="input" value={editForm.marital_status || ''} onChange={e => setEditForm({ ...editForm, marital_status: e.target.value })}>
+                  <option value="">Select...</option>
+                  {(MARITAL || []).map(m => <option key={m} value={m}>{m.replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Nationality</label>
+                <input className="input" placeholder="e.g. Pakistani" value={editForm.nationality || ''} onChange={e => setEditForm({ ...editForm, nationality: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">National ID / CNIC</label>
+                <input className="input" value={editForm.national_id || ''} onChange={e => setEditForm({ ...editForm, national_id: e.target.value })} />
+              </div>
+            </div>
           )}
 
-          {/* Employment Details — HR only */}
-          {isHR && (
-            <section>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-5 h-5 rounded bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center flex-shrink-0">
-                  <Briefcase size={11} className="text-blue-600 dark:text-blue-400" />
-                </div>
-                <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider">Employment Details</h4>
+          {/* Employment Details */}
+          {editSection === 'employment' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="label">Work Email</label>
+                <input type="email" className="input" value={editForm.work_email || ''} onChange={e => setEditForm({ ...editForm, work_email: e.target.value })} />
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="label">Work Email</label>
-                  <input type="email" className="input" value={editForm.work_email || ''} onChange={e => setEditForm({ ...editForm, work_email: e.target.value })} />
-                </div>
-                <div>
-                  <label className="label">Hire Date</label>
-                  <input type="date" className="input" value={editForm.hire_date || ''} onChange={e => setEditForm({ ...editForm, hire_date: e.target.value })} />
-                </div>
-                <div>
-                  <label className="label">Department</label>
-                  <select className="input" value={editForm.department_id || ''} onChange={e => setEditForm({ ...editForm, department_id: e.target.value })}>
-                    <option value="">Select department...</option>
-                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Position</label>
-                  <select className="input" value={editForm.position_id || ''} onChange={e => setEditForm({ ...editForm, position_id: e.target.value })}>
-                    <option value="">Select position...</option>
-                    {positions.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Employment Type</label>
-                  <select className="input" value={editForm.employment_type || ''} onChange={e => setEditForm({ ...editForm, employment_type: e.target.value })}>
-                    <option value="">Select...</option>
-                    {(EMPLOYMENT_TYPES || []).map(t => <option key={t} value={t}>{t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Status</label>
-                  <select className="input" value={editForm.status || ''} onChange={e => setEditForm({ ...editForm, status: e.target.value })}>
-                    <option value="">Select...</option>
-                    {(STATUSES || []).map(s => <option key={s} value={s}>{s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
-                  </select>
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="label">Work Location</label>
-                  <input className="input" placeholder="e.g. Office, Remote, Hybrid" value={editForm.work_location || ''} onChange={e => setEditForm({ ...editForm, work_location: e.target.value })} />
-                </div>
+              <div>
+                <label className="label">Hire Date</label>
+                <input type="date" className="input" value={editForm.hire_date || ''} onChange={e => setEditForm({ ...editForm, hire_date: e.target.value })} />
               </div>
-            </section>
+              <div>
+                <label className="label">Department</label>
+                <select className="input" value={editForm.department_id || ''} onChange={e => setEditForm({ ...editForm, department_id: e.target.value })}>
+                  <option value="">Select department...</option>
+                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Position</label>
+                <select className="input" value={editForm.position_id || ''} onChange={e => setEditForm({ ...editForm, position_id: e.target.value })}>
+                  <option value="">Select position...</option>
+                  {positions.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Employment Type</label>
+                <select className="input" value={editForm.employment_type || ''} onChange={e => setEditForm({ ...editForm, employment_type: e.target.value })}>
+                  <option value="">Select...</option>
+                  {(EMPLOYMENT_TYPES || []).map(t => <option key={t} value={t}>{t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Status</label>
+                <select className="input" value={editForm.status || ''} onChange={e => setEditForm({ ...editForm, status: e.target.value })}>
+                  <option value="">Select...</option>
+                  {(STATUSES || []).map(s => <option key={s} value={s}>{s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
+                </select>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="label">Work Location</label>
+                <input className="input" placeholder="e.g. Office, Remote, Hybrid" value={editForm.work_location || ''} onChange={e => setEditForm({ ...editForm, work_location: e.target.value })} />
+              </div>
+            </div>
           )}
 
           {/* Contact Information */}
-          <section>
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-5 h-5 rounded bg-green-100 dark:bg-green-900/40 flex items-center justify-center flex-shrink-0">
-                <Phone size={11} className="text-green-600 dark:text-green-400" />
-              </div>
-              <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider">Contact Information</h4>
-            </div>
+          {editSection === 'contact' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="label">Primary Phone</label>
@@ -1246,16 +1248,10 @@ function EmployeeProfileContent() {
                 <input type="email" className="input" value={editForm.personal_email || ''} onChange={e => setEditForm({ ...editForm, personal_email: e.target.value })} />
               </div>
             </div>
-          </section>
+          )}
 
           {/* Address */}
-          <section>
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-5 h-5 rounded bg-orange-100 dark:bg-orange-900/40 flex items-center justify-center flex-shrink-0">
-                <MapPin size={11} className="text-orange-600 dark:text-orange-400" />
-              </div>
-              <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider">Address</h4>
-            </div>
+          {editSection === 'address' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="sm:col-span-2">
                 <label className="label">Street Address</label>
@@ -1278,16 +1274,10 @@ function EmployeeProfileContent() {
                 <input className="input" value={editForm.postal_code || ''} onChange={e => setEditForm({ ...editForm, postal_code: e.target.value })} />
               </div>
             </div>
-          </section>
+          )}
 
           {/* Emergency Contact */}
-          <section>
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-5 h-5 rounded bg-red-100 dark:bg-red-900/40 flex items-center justify-center flex-shrink-0">
-                <Heart size={11} className="text-red-500 dark:text-red-400" />
-              </div>
-              <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider">Emergency Contact</h4>
-            </div>
+          {editSection === 'emergency' && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="label">Name</label>
@@ -1302,16 +1292,10 @@ function EmployeeProfileContent() {
                 <input className="input" value={editForm.emergency_contact_phone || ''} onChange={e => setEditForm({ ...editForm, emergency_contact_phone: e.target.value })} />
               </div>
             </div>
-          </section>
+          )}
 
           {/* Additional Info */}
-          <section>
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-5 h-5 rounded bg-slate-100 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
-                <ClipboardList size={11} className="text-slate-500 dark:text-slate-400" />
-              </div>
-              <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider">Additional Info</h4>
-            </div>
+          {editSection === 'additional' && (
             <div className="space-y-3">
               <div>
                 <label className="label">Bio</label>
@@ -1322,44 +1306,35 @@ function EmployeeProfileContent() {
                 <input className="input" value={editForm.insurance_card_number || ''} onChange={e => setEditForm({ ...editForm, insurance_card_number: e.target.value })} />
               </div>
             </div>
-          </section>
+          )}
 
-          {/* Banking — super_admin only */}
-          {user?.role === 'super_admin' && (
-            <section>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-5 h-5 rounded bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center flex-shrink-0">
-                  <Landmark size={11} className="text-emerald-600 dark:text-emerald-400" />
-                </div>
-                <h4 className="text-xs font-semibold text-oe-muted uppercase tracking-wider">Banking Information</h4>
-                <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 px-1.5 py-0.5 rounded">Super Admin only</span>
+          {/* Banking */}
+          {editSection === 'banking' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="label">Bank Name</label>
+                <input className="input" value={editForm.bank_name || ''} onChange={e => setEditForm({ ...editForm, bank_name: e.target.value })} />
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="label">Bank Name</label>
-                  <input className="input" value={editForm.bank_name || ''} onChange={e => setEditForm({ ...editForm, bank_name: e.target.value })} />
-                </div>
-                <div>
-                  <label className="label">Account Holder Name</label>
-                  <input className="input" value={editForm.account_holder_name || ''} onChange={e => setEditForm({ ...editForm, account_holder_name: e.target.value })} />
-                </div>
-                <div>
-                  <label className="label">Account Number</label>
-                  <input className="input" value={editForm.bank_account_number || ''} onChange={e => setEditForm({ ...editForm, bank_account_number: e.target.value })} />
-                </div>
-                <div>
-                  <label className="label">IBAN</label>
-                  <input className="input" value={editForm.iban || ''} onChange={e => setEditForm({ ...editForm, iban: e.target.value })} />
-                </div>
+              <div>
+                <label className="label">Account Holder Name</label>
+                <input className="input" value={editForm.account_holder_name || ''} onChange={e => setEditForm({ ...editForm, account_holder_name: e.target.value })} />
               </div>
-            </section>
+              <div>
+                <label className="label">Account Number</label>
+                <input className="input" value={editForm.bank_account_number || ''} onChange={e => setEditForm({ ...editForm, bank_account_number: e.target.value })} />
+              </div>
+              <div>
+                <label className="label">IBAN</label>
+                <input className="input" value={editForm.iban || ''} onChange={e => setEditForm({ ...editForm, iban: e.target.value })} />
+              </div>
+            </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex flex-col sm:flex-row justify-end gap-3 pt-2 pb-1 border-t border-oe-border mt-4">
-          <button onClick={() => setEditModal(false)} className="btn-secondary justify-center">Cancel</button>
-          <button onClick={handleEditSave} disabled={editSaving} className="btn-primary justify-center gap-1.5 min-w-[160px]">
+        <div className="flex flex-col sm:flex-row justify-end gap-3 p-5 pt-3 border-t border-oe-border">
+          <button onClick={() => setEditSection(null)} className="btn-secondary justify-center">Cancel</button>
+          <button onClick={handleEditSave} disabled={editSaving} className="btn-primary justify-center gap-1.5 min-w-[140px]">
             {editSaving
               ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving...</>
               : isHR

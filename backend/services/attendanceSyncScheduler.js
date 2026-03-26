@@ -53,45 +53,32 @@ async function updateSyncStatus(deviceId, status, message, count) {
 }
 
 // ── Shift configuration ──────────────────────────────────────────────────────
-// Punches with device-local hour < SHIFT_DAY_CUTOFF belong to the PREVIOUS
-// calendar day's shift. This groups a 7 PM check-in and 4 AM check-out under
-// the same shift date (the evening's calendar date).
-// The cutoff is applied in the DEVICE timezone, not UTC.
-const SHIFT_DAY_CUTOFF  = 6; // 6 AM device-local — punches 00:00–05:59 → previous day
-const DEVICE_TIMEZONE   = process.env.ZKTECO_DEVICE_TIMEZONE || 'Asia/Karachi';
+// Punches with hour < SHIFT_DAY_CUTOFF belong to the PREVIOUS calendar day's
+// shift.  This groups a 7 PM check-in and 4 AM check-out under the same
+// "shift date" (the evening's calendar date).
+const SHIFT_DAY_CUTOFF = 6; // 6 AM — punches 00:00–05:59 → previous day
 
 /**
- * Convert a UTC Date to a shift-date string (YYYY-MM-DD) in the device's
- * local timezone, rolling back one day for punches before SHIFT_DAY_CUTOFF.
+ * Compute the shift-date string (YYYY-MM-DD) for a punch timestamp.
  *
- * Uses Intl.DateTimeFormat so it respects DST and any IANA timezone name.
+ * IMPORTANT — timezone handling:
+ *   node-zklib reads times from the ZKTeco device as-is and creates JS Dates
+ *   using the *server's* local timezone.  Because the device clock shows device-
+ *   local time, Date.getHours() returns the **device-local hour** (even though
+ *   the Date object thinks it is in the server's timezone).  We intentionally
+ *   use getHours()/getFullYear()/getMonth()/getDate() — NOT a timezone
+ *   conversion — so the shift-date logic matches the wall-clock time shown on
+ *   the biometric device.
  */
-function getPunchShiftDate(utcDate) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: DEVICE_TIMEZONE,
-    year:     'numeric',
-    month:    '2-digit',
-    day:      '2-digit',
-    hour:     'numeric',
-    hour12:   false,
-  }).formatToParts(utcDate);
-
-  const get = type => parseInt(parts.find(p => p.type === type)?.value || '0', 10);
-
-  let year  = get('year');
-  let month = get('month'); // 1-based
-  let day   = get('day');
-  const hour = get('hour');
-
-  if (hour < SHIFT_DAY_CUTOFF) {
-    // Roll back one calendar day in device timezone
-    const prev = new Date(Date.UTC(year, month - 1, day - 1));
-    year  = prev.getUTCFullYear();
-    month = prev.getUTCMonth() + 1;
-    day   = prev.getUTCDate();
+function getPunchShiftDate(pt) {
+  const d = new Date(pt);
+  if (d.getHours() < SHIFT_DAY_CUTOFF) {
+    d.setDate(d.getDate() - 1);               // roll back to previous calendar day
   }
-
-  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 // ── ZKTeco state classification ──────────────────────────────────────────────
@@ -420,7 +407,7 @@ async function repairRecentAttendance() {
  * resolves check_in / check_out for each bucket, and upserts attendance_records.
  *
  * Key design decisions:
- *  1. Shift date uses device-local timezone (getPunchShiftDate) — not UTC hours.
+ *  1. Shift date uses server-local hours (= device-local hours via node-zklib).
  *  2. For each employee+date that has NEW unsynced punches, ALL raw punches
  *     (synced + unsynced) are included in resolvePair so a check-out that
  *     arrives in a later sync cycle still pairs correctly with the already-

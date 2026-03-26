@@ -188,10 +188,20 @@ router.get('/today', async (req, res) => {
       return res.status(400).json({ error: 'No employee record linked to this user' });
     }
 
+    // For overnight shifts (7 PM – 4 AM) the "active" record may have
+    // yesterday's shift-date.  Priority:
+    //   1. Any record with check_in but NO check_out (active shift)
+    //   2. Today's record (CURRENT_DATE)
+    //   3. Yesterday's completed record (so the card shows last shift)
     const result = await db.query(
       `SELECT id, date, check_in, check_out, work_hours, status, notes
        FROM attendance_records
-       WHERE employee_id = $1 AND date = CURRENT_DATE`,
+       WHERE employee_id = $1
+         AND date >= CURRENT_DATE - INTERVAL '1 day'
+       ORDER BY
+         (check_in IS NOT NULL AND check_out IS NULL) DESC,  -- active shift first
+         date DESC
+       LIMIT 1`,
       [employeeId]
     );
 
@@ -271,15 +281,20 @@ router.post('/checkout', async (req, res) => {
       return res.status(400).json({ error: 'No employee record linked to this user' });
     }
 
-    // Fetch old record for audit diff
+    // Find the active (checked-in, not checked-out) record.
+    // For overnight shifts the record date may be tomorrow's shift-date
+    // (e.g., check-in at 7 PM on Mar 26 → shift-date Mar 26 or Mar 27).
     const old = await db.query(
       `SELECT * FROM attendance_records
-       WHERE employee_id = $1 AND date = CURRENT_DATE AND check_in IS NOT NULL AND check_out IS NULL`,
+       WHERE employee_id = $1
+         AND check_in IS NOT NULL AND check_out IS NULL
+       ORDER BY date DESC LIMIT 1`,
       [employeeId]
     );
     if (old.rows.length === 0) {
-      return res.status(400).json({ error: 'No active check-in found for today' });
+      return res.status(400).json({ error: 'No active check-in found' });
     }
+    const activeId = old.rows[0].id;
 
     const { earlyHH, earlyMM } = await getAttendanceThresholds();
     const now = new Date();
@@ -292,12 +307,9 @@ router.post('/checkout', async (req, res) => {
            is_early_leave = $3,
            updated_by     = $2,
            updated_at     = NOW()
-       WHERE employee_id = $1
-         AND date = CURRENT_DATE
-         AND check_in IS NOT NULL
-         AND check_out IS NULL
+       WHERE id = $4
        RETURNING *`,
-      [employeeId, req.user.id, isEarlyLeave]
+      [employeeId, req.user.id, isEarlyLeave, activeId]
     );
 
     await logAction({

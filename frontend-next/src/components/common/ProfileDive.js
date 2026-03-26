@@ -16,15 +16,115 @@ function fmtTime(date) {
   return new Date(date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
 }
 
-function fmtElapsed(checkInISO) {
-  const diff = Math.floor((Date.now() - new Date(checkInISO).getTime()) / 1000);
-  if (diff < 0) return '0m';
-  const h = Math.floor(diff / 3600);
-  const m = Math.floor((diff % 3600) / 60);
-  const s = diff % 60;
-  if (h > 0) return `${h}h ${m.toString().padStart(2, '0')}m`;
-  if (m > 0) return `${m}m ${s.toString().padStart(2, '0')}s`;
-  return `${s}s`;
+const SHIFT_HOURS = 9; // standard shift length in hours
+
+function ShiftProgressBar({ checkInISO, checkOutISO, workHours }) {
+  const [, setTick] = useState(0);
+
+  // Live tick every second while shift is active (no checkout)
+  useEffect(() => {
+    if (checkOutISO) return;
+    const id = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [checkOutISO]);
+
+  const checkIn = new Date(checkInISO);
+  const elapsedMs = checkOutISO
+    ? parseFloat(workHours || 0) * 3600000
+    : Date.now() - checkIn.getTime();
+  const elapsedH = Math.max(0, elapsedMs / 3600000);
+  const pct = Math.min(100, (elapsedH / SHIFT_HOURS) * 100);
+  const remaining = Math.max(0, SHIFT_HOURS - elapsedH);
+
+  const h = Math.floor(elapsedH);
+  const m = Math.floor((elapsedH - h) * 60);
+  const s = Math.floor(((elapsedH - h) * 60 - m) * 60);
+
+  const isComplete = checkOutISO != null;
+  const isOvertime = elapsedH > SHIFT_HOURS;
+
+  return (
+    <div className="space-y-2">
+      {/* Top row: elapsed time + shift markers */}
+      <div className="flex items-end justify-between">
+        <div>
+          <div className="text-[10px] text-oe-muted uppercase tracking-wider font-medium mb-0.5">
+            {isComplete ? 'Shift Complete' : 'Shift Progress'}
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-2xl font-mono font-bold text-oe-text tabular-nums leading-none">
+              {h}:{String(m).padStart(2, '0')}
+            </span>
+            {!isComplete && (
+              <span className="text-sm font-mono text-oe-muted tabular-nums">
+                :{String(s).padStart(2, '0')}
+              </span>
+            )}
+            <span className="text-xs text-oe-muted">/ {SHIFT_HOURS}h</span>
+          </div>
+        </div>
+        <div className="text-right">
+          {isComplete ? (
+            <div className="text-xs font-semibold text-oe-success">
+              {parseFloat(workHours || 0).toFixed(1)}h logged
+            </div>
+          ) : isOvertime ? (
+            <div className="text-xs font-semibold text-oe-warning">
+              +{(elapsedH - SHIFT_HOURS).toFixed(1)}h overtime
+            </div>
+          ) : (
+            <div className="text-xs text-oe-muted">
+              {remaining.toFixed(1)}h remaining
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="relative">
+        <div className="h-2.5 rounded-full bg-oe-border/30 overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-1000 ease-linear ${
+              isComplete
+                ? 'bg-oe-success'
+                : isOvertime
+                  ? 'bg-gradient-to-r from-oe-primary via-oe-warning to-oe-danger'
+                  : 'bg-gradient-to-r from-oe-primary to-oe-cyan'
+            }`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        {/* Hour tick marks */}
+        <div className="absolute inset-0 flex justify-between px-[1px] pointer-events-none">
+          {Array.from({ length: SHIFT_HOURS + 1 }, (_, i) => (
+            <div key={i} className="flex flex-col items-center" style={{ width: 0 }}>
+              <div className={`w-px h-2.5 ${i === 0 || i === SHIFT_HOURS ? 'bg-transparent' : 'bg-oe-muted/20'}`} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Time labels */}
+      <div className="flex items-center justify-between text-[10px] text-oe-muted">
+        <span className="flex items-center gap-1">
+          <LogIn size={9} className="text-oe-success" />
+          {fmtTime(checkInISO)}
+        </span>
+        {isComplete && checkOutISO && (
+          <span className="flex items-center gap-1">
+            <LogOut size={9} className="text-oe-danger" />
+            {fmtTime(checkOutISO)}
+          </span>
+        )}
+        {!isComplete && (
+          <span className="flex items-center gap-1 text-oe-success">
+            <span className="w-1.5 h-1.5 rounded-full bg-oe-success animate-pulse" />
+            Active
+          </span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function greeting() {
@@ -248,58 +348,46 @@ export default function ProfileDive({ stats, recentLeaves, myTicketCount }) {
               </div>
             </div>
 
-            {/* Attendance Strip */}
+            {/* Attendance / Shift Strip */}
             <div className="bg-oe-card px-5 py-3">
               {attLoading ? (
                 <div className="flex items-center justify-center h-9">
                   <div className="w-4 h-4 border-2 border-oe-primary border-t-transparent rounded-full animate-spin" />
                 </div>
-              ) : (
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    {!attendance && (
-                      <span className="inline-flex items-center gap-1.5 text-sm text-oe-muted">
-                        <span className="w-1.5 h-1.5 rounded-full bg-oe-muted/40" />
-                        Not checked in
-                      </span>
-                    )}
-                    {checkedIn && (
-                      <div className="flex items-center gap-1.5 text-oe-success text-sm font-medium">
-                        <span className="w-1.5 h-1.5 rounded-full bg-oe-success animate-pulse flex-shrink-0" />
-                        Working
-                        <span className="text-oe-muted font-normal text-xs">since {fmtTime(attendance.check_in)}</span>
-                      </div>
-                    )}
-                    {checkedOut && (
-                      <div className="flex items-center gap-1.5 text-oe-success/80 text-sm font-medium">
-                        <CheckCircle2 size={13} className="flex-shrink-0" />
-                        <span>{parseFloat(attendance.work_hours || 0).toFixed(1)}h logged</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {checkedIn && (
-                    <div className="text-right flex-shrink-0">
-                      <div className="text-lg font-mono font-bold text-oe-text tabular-nums leading-none">
-                        {fmtElapsed(attendance.check_in)}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex-shrink-0">
-                    {(!attendance || checkedOut) && (
-                      <button onClick={handleCheckIn} disabled={actionLoading} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-oe-success text-white text-xs font-semibold hover:bg-oe-success/90 disabled:opacity-50 transition-colors">
-                        {actionLoading ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <LogIn size={13} />}
-                        Check In
-                      </button>
-                    )}
+              ) : attendance?.check_in ? (
+                /* Active or completed shift — show progress bar */
+                <div className="space-y-2.5">
+                  <ShiftProgressBar
+                    checkInISO={attendance.check_in}
+                    checkOutISO={attendance.check_out}
+                    workHours={attendance.work_hours}
+                  />
+                  <div className="flex justify-end">
                     {checkedIn && (
                       <button onClick={handleCheckOut} disabled={actionLoading} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-oe-warning/90 text-white text-xs font-semibold hover:bg-oe-warning disabled:opacity-50 transition-colors">
                         {actionLoading ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <LogOut size={13} />}
                         Check Out
                       </button>
                     )}
+                    {checkedOut && (
+                      <button onClick={handleCheckIn} disabled={actionLoading} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-oe-success text-white text-xs font-semibold hover:bg-oe-success/90 disabled:opacity-50 transition-colors">
+                        {actionLoading ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <LogIn size={13} />}
+                        Check In
+                      </button>
+                    )}
                   </div>
+                </div>
+              ) : (
+                /* No attendance record — not checked in */
+                <div className="flex items-center justify-between gap-3">
+                  <span className="inline-flex items-center gap-1.5 text-sm text-oe-muted">
+                    <span className="w-1.5 h-1.5 rounded-full bg-oe-muted/40" />
+                    Not checked in
+                  </span>
+                  <button onClick={handleCheckIn} disabled={actionLoading} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-oe-success text-white text-xs font-semibold hover:bg-oe-success/90 disabled:opacity-50 transition-colors">
+                    {actionLoading ? <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <LogIn size={13} />}
+                    Check In
+                  </button>
                 </div>
               )}
             </div>
