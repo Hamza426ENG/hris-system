@@ -36,11 +36,12 @@ function countDescendants(node) {
 }
 
 // ── TreeNode component ────────────────────────────────────────────────────────
-function TreeNode({ node, level, currentEmpId, forceExpanded, onNavigate, search }) {
+function TreeNode({ node, level, currentEmpId, forceExpanded, onNavigate, search, clickableIds }) {
   const cfg = getLvl(level);
   const hasChildren = (node.children || []).length > 0;
   const isMe = node.id === currentEmpId;
   const isMatched = Boolean(search && node._matched);
+  const canClick = clickableIds === 'all' || (clickableIds && clickableIds.has(node.id));
 
   // Default: expand first 2 levels, collapse deeper
   const [collapsed, setCollapsed] = useState(level >= 2);
@@ -57,9 +58,9 @@ function TreeNode({ node, level, currentEmpId, forceExpanded, onNavigate, search
 
       {/* ── Card ── */}
       <div
-        className="relative flex flex-col items-center cursor-pointer group select-none"
+        className={`relative flex flex-col items-center group select-none ${canClick ? 'cursor-pointer' : 'cursor-default'}`}
         style={{ width: 176 }}
-        onClick={(e) => { e.stopPropagation(); onNavigate(`/employees/${node.id}`); }}
+        onClick={(e) => { e.stopPropagation(); if (canClick) onNavigate(`/employees/${node.id}`); }}
       >
         {/* Glow behind card */}
         <div
@@ -178,6 +179,7 @@ function TreeNode({ node, level, currentEmpId, forceExpanded, onNavigate, search
                   forceExpanded={forceExpanded}
                   onNavigate={onNavigate}
                   search={search}
+                  clickableIds={clickableIds}
                 />
               </div>
             ))}
@@ -226,6 +228,7 @@ function OrganogramContent() {
   const [departments, setDepts]   = useState([]);
   const [deptFilter, setDeptFilter] = useState('');
   const [expandAll, setExpandAll] = useState(false);
+  const [viewMode, setViewMode] = useState('my'); // 'my' | 'company'
   const canvasRef = useRef(null);
 
   // Pan state
@@ -288,7 +291,21 @@ function OrganogramContent() {
     }
   };
 
-  const tree = data?.tree || [];
+  const fullTree = data?.tree || [];
+  const mySubtree = (() => {
+    const selfId = data?.current_employee_id;
+    if (!selfId) return fullTree;
+    const find = (nodes) => {
+      for (const n of nodes) {
+        if (n.id === selfId) return [n];
+        const found = find(n.children || []);
+        if (found) return found;
+      }
+      return null;
+    };
+    return find(fullTree) || fullTree;
+  })();
+  const tree = viewMode === 'my' ? mySubtree : fullTree;
   const afterDept   = deptFilter ? filterByDept(tree, deptFilter) : tree;
   const displayTree = search ? filterTree(afterDept, search) : afterDept;
   const totalVisible = countTotal(displayTree);
@@ -314,11 +331,27 @@ function OrganogramContent() {
           <div>
             <h1 className="text-xl font-bold text-oe-text">Organization Chart</h1>
             <p className="text-sm text-oe-muted">
-              {data?.is_partial
-                ? 'Showing your team hierarchy'
-                : `Full company hierarchy · ${(data?.all || []).length} employees`}
+              {viewMode === 'my'
+                ? `My hierarchy · ${totalVisible} employees`
+                : `Full company · ${(data?.all || []).length} employees`}
             </p>
           </div>
+        </div>
+
+        {/* View Toggle */}
+        <div className="flex items-center gap-1 bg-oe-surface rounded-xl p-1">
+          <button
+            onClick={() => setViewMode('my')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${viewMode === 'my' ? 'bg-oe-card text-oe-text shadow' : 'text-oe-muted hover:text-oe-text'}`}
+          >
+            <User size={12} className="inline mr-1.5 -mt-0.5" />My Hierarchy
+          </button>
+          <button
+            onClick={() => setViewMode('company')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${viewMode === 'company' ? 'bg-oe-card text-oe-text shadow' : 'text-oe-muted hover:text-oe-text'}`}
+          >
+            <Building2 size={12} className="inline mr-1.5 -mt-0.5" />Full Company
+          </button>
         </div>
 
         {/* Stats */}
@@ -327,12 +360,10 @@ function OrganogramContent() {
             <Users size={13} className="text-oe-primary" />
             <span className="text-xs font-semibold text-oe-text">{totalVisible} shown</span>
           </div>
-          {isFullAccess && (
-            <div className="flex items-center gap-2 bg-white dark:bg-white/[0.04] border border-slate-200 dark:border-white/8 rounded-lg px-3 py-1.5">
-              <Building2 size={13} className="text-oe-primary" />
-              <span className="text-xs font-semibold text-oe-text">{departments.length} departments</span>
-            </div>
-          )}
+          <div className="flex items-center gap-2 bg-white dark:bg-white/[0.04] border border-slate-200 dark:border-white/8 rounded-lg px-3 py-1.5">
+            <Building2 size={13} className="text-oe-primary" />
+            <span className="text-xs font-semibold text-oe-text">{departments.length} departments</span>
+          </div>
         </div>
       </div>
 
@@ -390,7 +421,7 @@ function OrganogramContent() {
       </div>
 
       {/* ═══ DEPARTMENT FILTER PILLS (admin only) ═══ */}
-      {isFullAccess && departments.length > 0 && (
+      {departments.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {departments.map(d => (
             <button key={d.id}
@@ -463,17 +494,41 @@ function OrganogramContent() {
             </div>
           ) : (
             <div className="flex gap-10 flex-wrap justify-center">
-              {displayTree.map(node => (
-                <TreeNode
-                  key={node.id}
-                  node={node}
-                  level={0}
-                  currentEmpId={data?.current_employee_id}
-                  forceExpanded={expandAll || Boolean(search)}
-                  onNavigate={(path) => router.push(path)}
-                  search={search}
-                />
-              ))}
+              {(() => {
+                // Build clickable IDs: self + all descendants in hierarchy
+                const isAdmin = ['super_admin', 'hr_admin'].includes(user?.role);
+                let clickableIds = 'all';
+                if (!isAdmin) {
+                  const ids = new Set();
+                  const selfId = data?.current_employee_id;
+                  if (selfId) ids.add(selfId);
+                  // Find user's node in tree and collect all descendant IDs
+                  const collectDescendants = (node) => {
+                    (node.children || []).forEach(c => { ids.add(c.id); collectDescendants(c); });
+                  };
+                  const findNode = (nodes) => {
+                    for (const n of nodes) {
+                      if (n.id === selfId) { collectDescendants(n); return true; }
+                      if (findNode(n.children || [])) return true;
+                    }
+                    return false;
+                  };
+                  findNode(data?.tree || []);
+                  clickableIds = ids;
+                }
+                return displayTree.map(node => (
+                  <TreeNode
+                    key={node.id}
+                    node={node}
+                    level={0}
+                    currentEmpId={data?.current_employee_id}
+                    forceExpanded={expandAll || Boolean(search)}
+                    onNavigate={(path) => router.push(path)}
+                    search={search}
+                    clickableIds={clickableIds}
+                  />
+                ));
+              })()}
             </div>
           )}
         </div>

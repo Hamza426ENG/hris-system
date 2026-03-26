@@ -4,11 +4,12 @@ import { useRouter } from 'next/router';
 import {
   LayoutDashboard, Users, GitBranch, Calendar, DollarSign,
   BarChart3, Settings, ChevronLeft, Wallet, ShieldCheck, X, Megaphone,
-  Fingerprint, TicketCheck, Bot, Monitor, ClipboardList, LogOut, User
+  Fingerprint, TicketCheck, Bot, Monitor, ClipboardList, LogOut, User, Bus
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useConfig } from '@/context/ConfigContext';
 import EdgeLogo from '@/components/common/EdgeLogo';
+import EdgeVerseLogo from '@/components/common/EdgeVerseLogo';
 
 const ALL_ROLES_KEY = '__all__';
 
@@ -24,11 +25,16 @@ const NAV_GROUPS = [
   {
     label: 'People',
     items: [
-      { to: '/employees', icon: Users, label: 'Employees', minLevel: 'hr_admin' },
+      { to: '/employees', icon: Users, label: 'Employees', minLevel: 'manager' },
       { to: '/profile-requests', icon: ClipboardList, label: 'Profile Requests', minLevel: 'hr_admin' },
       { to: '/resignations', icon: LogOut, label: 'Resignations', minLevel: 'hr_admin' },
       { to: '/organogram', icon: GitBranch, label: 'Organogram', roles: ALL_ROLES_KEY },
-      { to: '/attendance', icon: Fingerprint, label: 'Attendance', roles: ALL_ROLES_KEY },
+      { to: '/attendance', icon: Fingerprint, label: 'Attendance', roles: ALL_ROLES_KEY, children: [
+        { to: '/my-team-shifts', label: 'Team Shifts', roles: ['employee', 'team_lead', 'manager'] },
+        { to: '/work-shifts', label: 'Work Shifts', minLevel: 'manager' },
+        { to: '/assign-shifts', label: 'Assign Shifts', minLevel: 'manager' },
+      ] },
+      { to: '/transport', icon: Bus, label: 'Transport', roles: ALL_ROLES_KEY },
       { to: '/leaves', icon: Calendar, label: 'Leave Management', roles: ALL_ROLES_KEY },
       { to: '/tickets', icon: TicketCheck, label: 'Tickets', roles: ALL_ROLES_KEY },
       { to: '/edge-bot', icon: Bot, label: 'Edge Bot', roles: ALL_ROLES_KEY },
@@ -38,7 +44,7 @@ const NAV_GROUPS = [
   {
     label: 'Finance',
     items: [
-      { to: '/salary', icon: DollarSign, label: 'Salary & Comp', roles: ALL_ROLES_KEY },
+      { to: '/salary', icon: DollarSign, label: 'Salary & Comp', minLevel: 'hr_admin' },
       { to: '/payroll', icon: Wallet, label: 'Payroll', minLevel: 'manager' },
     ],
   },
@@ -72,13 +78,18 @@ export default function Sidebar({ open, setOpen }) {
   const role = user?.role;
 
   const userLevel = ROLE_HIERARCHY[role] || 0;
+  const canSee = (item) => {
+    if (item.roles === ALL_ROLES_KEY) return true;
+    if (Array.isArray(item.roles)) return item.roles.includes(role);
+    if (item.minLevel) return userLevel >= (ROLE_HIERARCHY[item.minLevel] || 0);
+    return false;
+  };
   const visibleGroups = NAV_GROUPS.map(group => ({
     ...group,
-    items: group.items.filter(item => {
-      if (item.roles === ALL_ROLES_KEY) return true;
-      if (item.minLevel) return userLevel >= (ROLE_HIERARCHY[item.minLevel] || 0);
-      return false;
-    }),
+    items: group.items.filter(canSee).map(item => ({
+      ...item,
+      children: item.children ? item.children.filter(canSee) : undefined,
+    })),
   })).filter(group => group.items.length > 0);
 
   const initials = user
@@ -93,12 +104,13 @@ export default function Sidebar({ open, setOpen }) {
       {/* Header / Logo */}
       <div className="h-16 flex items-center px-4 flex-shrink-0 border-b border-slate-200 dark:border-white/8">
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className="flex-shrink-0 text-oe-primary dark:text-white">
-            <EdgeLogo className={(open || isDrawer) ? "h-5 w-auto" : "h-5 w-5"} />
-          </div>
-          {(open || isDrawer) && (
+          {(open || isDrawer) ? (
             <div className="overflow-hidden">
-              <div className="text-[11px] font-semibold text-slate-400 dark:text-white/50 uppercase tracking-widest leading-none">EdgeVerse</div>
+              <EdgeVerseLogo className="h-5 w-auto" />
+            </div>
+          ) : (
+            <div className="flex-shrink-0 text-oe-primary dark:text-white">
+              <EdgeLogo className="h-5 w-5" />
             </div>
           )}
         </div>
@@ -122,30 +134,58 @@ export default function Sidebar({ open, setOpen }) {
               </div>
             )}
             <div className="space-y-0.5">
-              {group.items.map(({ to, icon: Icon, label }) => {
+              {group.items.map(({ to, icon: Icon, label, children }) => {
                 const isActive = to === '/' ? router.pathname === '/' : router.pathname.startsWith(to);
+                const hasVisibleChildren = children && children.length > 0;
+                const isChildActive = hasVisibleChildren && children.some(c => router.pathname.startsWith(c.to));
+                const isExpanded = isActive || isChildActive;
                 return (
-                  <Link
-                    key={to}
-                    href={to}
-                    onClick={isDrawer ? () => setOpen(false) : undefined}
-                    data-tip={!open && !isDrawer ? label : undefined}
-                    className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 relative group ${
-                      isActive
-                        ? 'bg-oe-primary/10 text-oe-primary dark:bg-white/12 dark:text-white shadow-sm'
-                        : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-white/55 dark:hover:text-white dark:hover:bg-white/8'
-                    }`}
-                  >
-                    {isActive && (
-                      <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-oe-primary dark:bg-violet-400 rounded-r-full" />
+                  <div key={to}>
+                    <Link
+                      href={to}
+                      onClick={isDrawer ? () => setOpen(false) : undefined}
+                      data-tip={!open && !isDrawer ? label : undefined}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 relative group ${
+                        isActive
+                          ? 'bg-oe-primary/10 text-oe-primary dark:bg-white/12 dark:text-white shadow-sm'
+                          : isChildActive
+                            ? 'text-oe-primary dark:text-white'
+                            : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100 dark:text-white/55 dark:hover:text-white dark:hover:bg-white/8'
+                      }`}
+                    >
+                      {(isActive || isChildActive) && (
+                        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-oe-primary dark:bg-violet-400 rounded-r-full" />
+                      )}
+                      <Icon size={16} className={`flex-shrink-0 transition-colors ${
+                        isActive || isChildActive
+                          ? 'text-oe-primary dark:text-violet-400'
+                          : 'text-slate-400 group-hover:text-slate-700 dark:text-white/45 dark:group-hover:text-white/80'
+                      }`} />
+                      {(open || isDrawer) && <span className="truncate">{label}</span>}
+                    </Link>
+                    {hasVisibleChildren && isExpanded && (open || isDrawer) && (
+                      <div className="ml-5 pl-3 mt-0.5 mb-1 border-l border-slate-200 dark:border-white/10 space-y-0.5">
+                        {children.map(child => {
+                          const childActive = router.pathname.startsWith(child.to);
+                          return (
+                            <Link
+                              key={child.to}
+                              href={child.to}
+                              onClick={isDrawer ? () => setOpen(false) : undefined}
+                              className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all duration-150 ${
+                                childActive
+                                  ? 'text-oe-primary bg-oe-primary/8 dark:text-white dark:bg-white/10'
+                                  : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:text-white/45 dark:hover:text-white dark:hover:bg-white/8'
+                              }`}
+                            >
+                              <span className={`w-1 h-1 rounded-full flex-shrink-0 ${childActive ? 'bg-oe-primary dark:bg-violet-400' : 'bg-slate-300 dark:bg-white/20'}`} />
+                              <span className="truncate">{child.label}</span>
+                            </Link>
+                          );
+                        })}
+                      </div>
                     )}
-                    <Icon size={16} className={`flex-shrink-0 transition-colors ${
-                      isActive
-                        ? 'text-oe-primary dark:text-violet-400'
-                        : 'text-slate-400 group-hover:text-slate-700 dark:text-white/45 dark:group-hover:text-white/80'
-                    }`} />
-                    {(open || isDrawer) && <span className="truncate">{label}</span>}
-                  </Link>
+                  </div>
                 );
               })}
             </div>

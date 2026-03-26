@@ -63,6 +63,8 @@ app.use('/api/it-inventory', require('./routes/it-inventory'));
 app.use('/api/profile-requests', require('./routes/profile-requests'));
 app.use('/api/documents',        require('./routes/documents'));
 app.use('/api/resignations',     require('./routes/resignations'));
+app.use('/api/work-shifts',      require('./routes/work-shifts'));
+app.use('/api/transport',        require('./routes/transport'));
 
 // Serve document uploads (authenticated)
 app.use('/uploads/documents', require('./middleware/auth').authenticate, require('express').static(path.join(__dirname, 'uploads', 'documents')));

@@ -4,6 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Eye, EyeOff, Lock, Mail, AlertCircle, ArrowRight } from 'lucide-react';
 import PublicRoute from '@/components/auth/PublicRoute';
 import EdgeLogo from '@/components/common/EdgeLogo';
+import EdgeVerseLogo from '@/components/common/EdgeVerseLogo';
 
 function LoginContent() {
   const [form, setForm] = useState({ email: '', password: '' });
@@ -18,8 +19,8 @@ function LoginContent() {
     setLoading(true);
     setError('');
     try {
-      await login(form.email, form.password);
-      router.push('/');
+      const userData = await login(form.email, form.password);
+      router.replace(userData.role === 'employee' ? '/announcements' : '/');
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed. Please try again.');
     } finally {
@@ -46,15 +47,13 @@ function LoginContent() {
         </div>
         
         <div className="relative z-10 text-center">
-          {/* EDGE Logo */}
-          <div className="mb-12 inline-block">
-            <EdgeLogo className="w-48 h-auto text-white" />
-
+          {/* EdgeVerse Logo */}
+          <div className="mb-8 inline-block">
+            <EdgeVerseLogo className="w-56 h-auto" variant="white" />
           </div>
-          
-          <div>
-            <h1 className="text-4xl font-bold text-white mb-3">Welcome to Edge Verse</h1>
 
+          <div>
+            <h1 className="text-4xl font-bold text-white mb-3">Welcome to EdgeVerse</h1>
           </div>
         </div>
       </div>
@@ -65,7 +64,7 @@ function LoginContent() {
           {/* Mobile Logo - only shown on mobile */}
           <div className="lg:hidden text-center mb-6">
             <div className="inline-block mb-4">
-              <EdgeLogo className="w-24 h-auto text-violet-600" />
+              <EdgeVerseLogo className="w-36 h-auto" />
             </div>
             <h1 className="text-2xl font-bold text-slate-800 mb-1">Welcome back</h1>
             <p className="text-xs text-slate-600">Sign in to continue</p>

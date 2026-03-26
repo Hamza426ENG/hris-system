@@ -6,7 +6,7 @@ import {
   LogIn, LogOut, Calendar, User, Building2,
   CheckCircle2, Briefcase, TrendingUp, ChevronRight,
   RotateCcw, Hash, Fingerprint, Clock,
-  ClipboardList, TicketCheck, Mail, Shield
+  ClipboardList, TicketCheck, Mail, Shield, Timer
 } from 'lucide-react';
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -18,21 +18,77 @@ function fmtTime(date) {
 
 const SHIFT_HOURS = 9; // standard shift length in hours
 
-function ShiftProgressBar({ checkInISO, checkOutISO, workHours }) {
-  const [, setTick] = useState(0);
+/**
+ * Compute initial elapsed seconds from the check-in timestamp.
+ *
+ * The stored check_in has correct WALL-CLOCK hours (device-local) via
+ * node-zklib, but its UTC epoch is wrong (offset by the server↔device TZ
+ * gap).  getHours()/getMinutes()/getSeconds() return device-local values.
+ *
+ * We convert "now" to device-local using Intl, diff the seconds-of-day,
+ * and account for midnight crossover.  This runs ONCE per data load —
+ * the 1-second tick just increments from here.
+ */
+function calcInitialElapsed(checkInISO, backendElapsed) {
+  // If the backend already computed it, trust that
+  if (typeof backendElapsed === 'number' && backendElapsed > 0) return backendElapsed;
 
-  // Live tick every second while shift is active (no checkout)
+  // Fallback: compute in the browser using the same technique
+  const ci = new Date(checkInISO);
+  const ciH = ci.getHours(), ciM = ci.getMinutes(), ciS = ci.getSeconds();
+  const ciSecOfDay = ciH * 3600 + ciM * 60 + ciS;
+
+  // Current device-local time (Asia/Karachi)
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Karachi', hour12: false,
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(new Date());
+    const g = (t) => parseInt(parts.find(p => p.type === t)?.value || '0', 10);
+    const nowSecOfDay = g('hour') * 3600 + g('minute') * 60 + g('second');
+
+    // Device-local dates for day-diff
+    const ciDate = `${ci.getFullYear()}-${String(ci.getMonth()+1).padStart(2,'0')}-${String(ci.getDate()).padStart(2,'0')}`;
+    const nowDate = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Karachi', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
+    const dayDiff = Math.round((new Date(nowDate) - new Date(ciDate)) / 86400000);
+
+    const elapsed = dayDiff * 86400 + (nowSecOfDay - ciSecOfDay);
+    return Math.max(0, elapsed);
+  } catch {
+    return 0;
+  }
+}
+
+function ShiftProgressBar({ checkInISO, checkOutISO, workHours, elapsedSeconds }) {
+  // Compute the initial elapsed once per data load, then tick locally
+  const initialSec = useRef(0);
+  const loadedAt   = useRef(Date.now());
+  const [tick, setTick] = useState(0);
+
+  // Recompute baseline whenever props change (data reload / refresh)
+  useEffect(() => {
+    initialSec.current = calcInitialElapsed(checkInISO, elapsedSeconds);
+    loadedAt.current   = Date.now();
+  }, [checkInISO, elapsedSeconds]);
+
+  // 1-second tick for live counter (only while shift is active)
   useEffect(() => {
     if (checkOutISO) return;
     const id = setInterval(() => setTick(t => t + 1), 1000);
     return () => clearInterval(id);
   }, [checkOutISO]);
 
-  const checkIn = new Date(checkInISO);
-  const elapsedMs = checkOutISO
-    ? parseFloat(workHours || 0) * 3600000
-    : Date.now() - checkIn.getTime();
-  const elapsedH = Math.max(0, elapsedMs / 3600000);
+  let elapsedH;
+  if (checkOutISO) {
+    elapsedH = parseFloat(workHours || 0);
+  } else {
+    // Base from server/fallback + seconds since this component loaded
+    const liveSec = initialSec.current + (Date.now() - loadedAt.current) / 1000;
+    elapsedH = Math.max(0, liveSec / 3600);
+  }
+  void tick; // consumed to trigger re-render
   const pct = Math.min(100, (elapsedH / SHIFT_HOURS) * 100);
   const remaining = Math.max(0, SHIFT_HOURS - elapsedH);
 
@@ -361,6 +417,7 @@ export default function ProfileDive({ stats, recentLeaves, myTicketCount }) {
                     checkInISO={attendance.check_in}
                     checkOutISO={attendance.check_out}
                     workHours={attendance.work_hours}
+                    elapsedSeconds={attendance.elapsed_seconds}
                   />
                   <div className="flex justify-end">
                     {checkedIn && (
@@ -531,6 +588,19 @@ export default function ProfileDive({ stats, recentLeaves, myTicketCount }) {
                     </div>
                   </div>
                 )}
+                <div className="flex items-center gap-2">
+                  <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${employee?.shift_name ? 'bg-oe-warning/8' : ''}`}>
+                    <Timer size={12} className={employee?.shift_name ? 'text-oe-warning' : 'text-oe-muted/25'} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[10px] text-oe-muted uppercase tracking-wider leading-tight">Work Shift</div>
+                    <div className={`text-xs leading-snug ${employee?.shift_name ? 'font-medium text-oe-text' : 'text-oe-muted/40'}`}>
+                      {employee?.shift_name
+                        ? `${employee.shift_name} (${employee.shift_start_time?.slice(0, 5)} - ${employee.shift_end_time?.slice(0, 5)})`
+                        : 'Not Assigned'}
+                    </div>
+                  </div>
+                </div>
                 {employee?.work_email && (
                   <div className="flex items-center gap-2 col-span-2">
                     <div className="w-6 h-6 rounded-md bg-oe-warning/8 flex items-center justify-center flex-shrink-0">

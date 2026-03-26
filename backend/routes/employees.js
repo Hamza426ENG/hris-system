@@ -294,11 +294,13 @@ router.get('/', async (req, res) => {
         d.name as department_name, d.code as department_code,
         p.title as position_title, p.grade,
         CONCAT(m.first_name, ' ', m.last_name) as manager_name,
-        m.id as manager_id
+        m.id as manager_id,
+        ws.shift_name, ws.start_time as shift_start_time, ws.end_time as shift_end_time, ws.timezone as shift_timezone
       FROM employees e
       LEFT JOIN departments d ON d.id = e.department_id
       LEFT JOIN positions p ON p.id = e.position_id
       LEFT JOIN employees m ON m.id = e.manager_id
+      LEFT JOIN work_shifts ws ON ws.id = e.shift_id
       WHERE ${where.join(' AND ')}
       ORDER BY e.first_name, e.last_name
       LIMIT $${i} OFFSET $${i + 1}
@@ -331,17 +333,37 @@ router.get('/:id', async (req, res) => {
         d.name as department_name, d.code as department_code,
         p.title as position_title, p.grade, p.level,
         CONCAT(m.first_name, ' ', m.last_name) as manager_name,
-        m.employee_id as manager_employee_id
+        m.employee_id as manager_employee_id,
+        ws.shift_name, ws.start_time as shift_start_time, ws.end_time as shift_end_time, ws.timezone as shift_timezone
       FROM employees e
       LEFT JOIN departments d ON d.id = e.department_id
       LEFT JOIN positions p ON p.id = e.position_id
       LEFT JOIN employees m ON m.id = e.manager_id
+      LEFT JOIN work_shifts ws ON ws.id = e.shift_id
       WHERE e.id = $1
     `, [req.params.id]);
 
     if (result.rows.length === 0) return res.status(404).json({ error: 'Employee not found' });
 
     const employee = result.rows[0];
+
+    // Access control: users can view self + anyone in their downward hierarchy; HR/admin see all
+    const role = req.user.role;
+    const selfId = req.user.employee_id;
+    if (!['super_admin', 'hr_admin'].includes(role) && selfId !== req.params.id) {
+      // Check if target employee is anywhere in the viewer's downward hierarchy
+      const hierarchyCheck = await db.query(`
+        WITH RECURSIVE subordinates AS (
+          SELECT id FROM employees WHERE manager_id = $1
+          UNION ALL
+          SELECT e.id FROM employees e INNER JOIN subordinates s ON e.manager_id = s.id
+        )
+        SELECT id FROM subordinates WHERE id = $2
+      `, [selfId, req.params.id]);
+      if (hierarchyCheck.rows.length === 0) {
+        return res.status(403).json({ error: 'You can only view profiles within your hierarchy' });
+      }
+    }
 
     // Fetch latest performance record
     const perfResult = await db.query(`

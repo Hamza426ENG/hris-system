@@ -929,6 +929,144 @@ async function runAdditiveMigrations() {
     await db.query('CREATE INDEX IF NOT EXISTS idx_resignations_lwd      ON resignations(last_working_day)');
 
     // ══════════════════════════════════════════════════════════════════════════
+    // ── TRANSPORT MANAGEMENT MODULE ──────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // ── transport_vehicles ────────────────────────────────────────────────────
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS transport_vehicles (
+        id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        vehicle_name VARCHAR(100) NOT NULL,
+        plate_number VARCHAR(30) UNIQUE NOT NULL,
+        vehicle_type VARCHAR(20) DEFAULT 'bus',
+        capacity     INT NOT NULL DEFAULT 20,
+        driver_name  VARCHAR(100),
+        driver_phone VARCHAR(20),
+        is_active    BOOLEAN DEFAULT TRUE,
+        notes        TEXT,
+        created_at   TIMESTAMP DEFAULT NOW(),
+        updated_at   TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_transport_vehicles_active ON transport_vehicles(is_active)');
+
+    // ── transport_routes ──────────────────────────────────────────────────────
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS transport_routes (
+        id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        route_name     VARCHAR(100) NOT NULL,
+        area           VARCHAR(100),
+        departure_time TIME,
+        return_time    TIME,
+        vehicle_id     UUID REFERENCES transport_vehicles(id) ON DELETE SET NULL,
+        is_active      BOOLEAN DEFAULT TRUE,
+        notes          TEXT,
+        created_by     UUID REFERENCES users(id) ON DELETE SET NULL,
+        created_at     TIMESTAMP DEFAULT NOW(),
+        updated_at     TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_transport_routes_active ON transport_routes(is_active)');
+
+    // ── transport_stops ───────────────────────────────────────────────────────
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS transport_stops (
+        id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        route_id     UUID NOT NULL REFERENCES transport_routes(id) ON DELETE CASCADE,
+        stop_name    VARCHAR(150) NOT NULL,
+        stop_order   INT NOT NULL DEFAULT 1,
+        pickup_time  TIME,
+        dropoff_time TIME,
+        area         VARCHAR(100),
+        created_at   TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_transport_stops_route ON transport_stops(route_id)');
+
+    // ── transport_enrollments ─────────────────────────────────────────────────
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS transport_enrollments (
+        id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        employee_id     UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        route_id        UUID REFERENCES transport_routes(id) ON DELETE SET NULL,
+        stop_id         UUID REFERENCES transport_stops(id) ON DELETE SET NULL,
+        status          VARCHAR(20) DEFAULT 'pending',
+        enrollment_date DATE DEFAULT CURRENT_DATE,
+        approved_by     UUID REFERENCES employees(id) ON DELETE SET NULL,
+        approved_at     TIMESTAMP,
+        notes           TEXT,
+        created_at      TIMESTAMP DEFAULT NOW(),
+        updated_at      TIMESTAMP DEFAULT NOW(),
+        UNIQUE(employee_id)
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_transport_enrollments_employee ON transport_enrollments(employee_id)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_transport_enrollments_status   ON transport_enrollments(status)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_transport_enrollments_route    ON transport_enrollments(route_id)');
+
+    // ── transport_usage ───────────────────────────────────────────────────────
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS transport_usage (
+        id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        employee_id  UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        route_id     UUID REFERENCES transport_routes(id) ON DELETE SET NULL,
+        usage_date   DATE NOT NULL DEFAULT CURRENT_DATE,
+        used_pickup  BOOLEAN DEFAULT FALSE,
+        used_dropoff BOOLEAN DEFAULT FALSE,
+        marked_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+        notes        TEXT,
+        created_at   TIMESTAMP DEFAULT NOW(),
+        UNIQUE(employee_id, usage_date)
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_transport_usage_date     ON transport_usage(usage_date)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_transport_usage_employee ON transport_usage(employee_id)');
+
+    // ── transport_issues ──────────────────────────────────────────────────────
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS transport_issues (
+        id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        route_id    UUID REFERENCES transport_routes(id) ON DELETE SET NULL,
+        issue_type  VARCHAR(50) DEFAULT 'complaint',
+        description TEXT NOT NULL,
+        status      VARCHAR(20) DEFAULT 'open',
+        resolved_by UUID REFERENCES employees(id) ON DELETE SET NULL,
+        resolved_at TIMESTAMP,
+        created_at  TIMESTAMP DEFAULT NOW(),
+        updated_at  TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await db.query('CREATE INDEX IF NOT EXISTS idx_transport_issues_employee ON transport_issues(employee_id)');
+    await db.query('CREATE INDEX IF NOT EXISTS idx_transport_issues_status   ON transport_issues(status)');
+
+    // ── Work Shifts ──────────────────────────────────────────────────────────
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS work_shifts (
+          id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+          shift_name  VARCHAR(100) NOT NULL,
+          start_time  TIME NOT NULL,
+          end_time    TIME NOT NULL,
+          timezone    VARCHAR(100) NOT NULL DEFAULT 'UTC',
+          description TEXT,
+          is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+          created_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+          created_at  TIMESTAMP DEFAULT NOW(),
+          updated_at  TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      await db.query('CREATE INDEX IF NOT EXISTS idx_work_shifts_active ON work_shifts(is_active)');
+      await db.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_work_shifts_name ON work_shifts(LOWER(shift_name))');
+    } catch (e) { console.error('Work shifts migration error:', e.message); }
+
+    // ── Employee → Shift assignment column ───────────────────────────────────
+    try {
+      await db.query('ALTER TABLE employees ADD COLUMN IF NOT EXISTS shift_id UUID REFERENCES work_shifts(id) ON DELETE SET NULL');
+      await db.query('CREATE INDEX IF NOT EXISTS idx_employees_shift ON employees(shift_id)');
+    } catch (e) { console.error('Employee shift_id migration error:', e.message); }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // ── SUPER ADMIN SEED & DUMMY USER CLEANUP ────────────────────────────────
     // Runs once — only when the canonical super admin does not yet exist.
     // All other user accounts (dummy / test) are removed; employee records are

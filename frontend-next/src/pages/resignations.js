@@ -79,7 +79,7 @@ function ResignationDetailModal({ resignation, onClose, onApprove, onReject, onC
             ['Resignation Date', fmtDate(r.resignation_date)],
             ['Last Working Day', fmtDate(r.last_working_day)],
             ['Notice Period', `${r.notice_period_days} days`],
-            ['Hire Date', fmtDate(r.hire_date)],
+            ['Joining Date', fmtDate(r.hire_date)],
             ['Employment Duration', r.employment_duration || '—'],
             ['Settlement Amount', r.final_settlement_amount ? `$${Number(r.final_settlement_amount).toLocaleString()}` : '—'],
           ].map(([label, value]) => (

@@ -40,6 +40,7 @@ function LeavesContent() {
   const [saving, setSaving] = useState(false);
   const [confirm, setConfirm] = useState(null); // { action, label, message, variant, onConfirm }
   const [confirming, setConfirming] = useState(false);
+  const [balances, setBalances] = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -50,7 +51,14 @@ function LeavesContent() {
     finally { setLoading(false); }
   }, [filters]);
 
+  const loadBalances = useCallback(() => {
+    if (user?.employeeId) {
+      leavesAPI.balances(user.employeeId).then(r => setBalances(r.data || [])).catch(() => {});
+    }
+  }, [user?.employeeId]);
+
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadBalances(); }, [loadBalances]);
   useEffect(() => {
     leavesAPI.types().then(r => setTypes(r.data));
     if (canApprove) employeesAPI.list({ status: 'active' }).then(r => setEmployees(r.data.data));
@@ -58,12 +66,12 @@ function LeavesContent() {
 
   const handleApprove = async () => {
     await leavesAPI.approve(selected.id, { review_comments: reviewComment });
-    setModal(null); setSelected(null); setReviewComment(''); load();
+    setModal(null); setSelected(null); setReviewComment(''); load(); loadBalances();
   };
   const handleReject = async () => {
     if (!reviewComment) { alert('Please provide rejection reason'); return; }
     await leavesAPI.reject(selected.id, { review_comments: reviewComment });
-    setModal(null); setSelected(null); setReviewComment(''); load();
+    setModal(null); setSelected(null); setReviewComment(''); load(); loadBalances();
   };
   const handleCancel = (id) => {
     setConfirm({
@@ -73,7 +81,7 @@ function LeavesContent() {
       variant: 'warning',
       onConfirm: async () => {
         setConfirming(true);
-        try { await leavesAPI.cancel(id); load(); }
+        try { await leavesAPI.cancel(id); load(); loadBalances(); }
         finally { setConfirming(false); setConfirm(null); }
       },
     });
@@ -90,7 +98,7 @@ function LeavesContent() {
       await leavesAPI.create(submitForm);
       setModal(null);
       setForm({ employee_id: isHR ? '' : (user?.employeeId || ''), leave_type_id: '', start_date: '', end_date: '', reason: '', half_day: false });
-      load();
+      load(); loadBalances();
     } catch (err) { alert(err.response?.data?.error || 'Failed to submit'); }
     finally { setSaving(false); }
   };
@@ -128,6 +136,36 @@ function LeavesContent() {
           </div>
         ))}
       </div>
+
+      {/* Leave Balances */}
+      {balances.length > 0 && (
+        <div className="card p-4">
+          <h4 className="text-xs font-bold text-oe-muted uppercase tracking-wider mb-3">My Leave Balances</h4>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {balances.map(b => {
+              const available = parseFloat(b.available_days) || 0;
+              const allocated = parseFloat(b.allocated_days) || 0;
+              const used = parseFloat(b.used_days) || 0;
+              const pendingDays = parseFloat(b.pending_days) || 0;
+              const pct = allocated > 0 ? Math.min(((used + pendingDays) / allocated) * 100, 100) : 0;
+              return (
+                <div key={b.id} className="rounded-xl border border-oe-border/40 p-3 text-center bg-oe-surface/30">
+                  <div className="w-8 h-8 rounded-full mx-auto mb-2 flex items-center justify-center" style={{ backgroundColor: (b.color || '#3B82F6') + '18' }}>
+                    <Calendar size={14} style={{ color: b.color || '#3B82F6' }} />
+                  </div>
+                  <div className="text-xl font-bold text-oe-text leading-none">{available}</div>
+                  <div className="text-[10px] text-oe-muted mt-0.5">of {allocated} days</div>
+                  <div className="text-[11px] font-medium text-oe-text mt-1 leading-tight truncate" title={b.leave_type_name}>{b.leave_type_name}</div>
+                  <div className="mt-2 h-1.5 rounded-full bg-oe-border/30 overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: b.color || '#3B82F6' }} />
+                  </div>
+                  <div className="text-[10px] text-oe-muted mt-1">{used} used{pendingDays > 0 ? ` · ${pendingDays} pending` : ''}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3">

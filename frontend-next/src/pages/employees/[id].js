@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
-import { employeesAPI, leavesAPI, salaryAPI, profileRequestsAPI, documentsAPI, resignationsAPI, departmentsAPI, positionsAPI } from '@/services/api';
+import { employeesAPI, leavesAPI, salaryAPI, profileRequestsAPI, documentsAPI, resignationsAPI, departmentsAPI, positionsAPI, workShiftsAPI } from '@/services/api';
 import useGoBack from '@/hooks/useGoBack';
 import {
   ArrowLeft, Mail, Phone, MapPin, Calendar, Briefcase, User, DollarSign,
   Clock, Plus, Camera, Edit, Send, CheckCircle2, XCircle, ClipboardList,
   Heart, Shield, Globe, Hash, Users, Building, MapPinned, Star, Activity, TrendingUp, Badge,
   FileText, Upload, Download, Eye, Trash2, AlertTriangle, CreditCard, Landmark,
-  X, Image, File, CheckCircle, ChevronDown
+  X, Image, File, CheckCircle, ChevronDown, Search, Timer
 } from 'lucide-react';
 import Modal from '@/components/common/Modal';
 import Avatar from '@/components/common/Avatar';
@@ -96,6 +96,10 @@ function EmployeeProfileContent() {
   const [myRequests, setMyRequests] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [positions, setPositions] = useState([]);
+  const [allEmployees, setAllEmployees] = useState([]);
+  const [managerSearch, setManagerSearch] = useState('');
+  const [managerDropOpen, setManagerDropOpen] = useState(false);
+  const managerRef = useRef(null);
 
   // Documents
   const [documents, setDocuments] = useState([]);
@@ -110,12 +114,18 @@ function EmployeeProfileContent() {
   // Resignation
   const [resignation, setResignation] = useState(null);
 
+  // Shift assignment
+  const [availableShifts, setAvailableShifts] = useState([]);
+  const [shiftSaving, setShiftSaving] = useState(false);
+
   const isHR = permissions?.canManageAll;
   const isSelf = user?.employeeId === id;
+  const isManager = ['manager', 'team_lead'].includes(user?.role);
+  const canAssignShift = isHR || (isManager && !isSelf);
 
   const SECTION_FIELDS = {
     personal: ['first_name', 'last_name', 'middle_name', 'date_of_birth', 'gender', 'marital_status', 'nationality', 'national_id'],
-    employment: ['work_email', 'department_id', 'position_id', 'manager_id', 'employment_type', 'hire_date', 'work_location', 'status'],
+    employment: ['work_email', 'department_id', 'position_id', 'manager_id', 'employment_type', 'hire_date', 'work_location', 'status', 'shift_id'],
     contact: ['phone_primary', 'phone_secondary', 'personal_email'],
     address: ['address_line1', 'city', 'state', 'country', 'postal_code'],
     emergency: ['emergency_contact_name', 'emergency_contact_relation', 'emergency_contact_phone'],
@@ -129,6 +139,12 @@ function EmployeeProfileContent() {
     if (section === 'employment') {
       departmentsAPI.list().then(r => setDepartments(r.data || [])).catch(() => {});
       positionsAPI.list().then(r => setPositions(r.data?.data || r.data || [])).catch(() => {});
+      employeesAPI.list({ limit: 1000 }).then(r => {
+        const emps = (r.data?.data || r.data || []).filter(e => e.id !== id && e.status === 'active');
+        setAllEmployees(emps);
+      }).catch(() => {});
+      setManagerSearch('');
+      setManagerDropOpen(false);
     }
     const fields = SECTION_FIELDS[section] || [];
     const form = {};
@@ -192,22 +208,47 @@ function EmployeeProfileContent() {
     reader.readAsDataURL(file);
   };
 
+  const handleShiftAssign = async (shiftId) => {
+    setShiftSaving(true);
+    try {
+      await workShiftsAPI.assign(id, { shift_id: shiftId || null });
+      const res = await employeesAPI.get(id);
+      setEmp(res.data);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to assign shift');
+    } finally { setShiftSaving(false); }
+  };
+
+  // Close manager dropdown on outside click
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (managerRef.current && !managerRef.current.contains(e.target)) {
+        setManagerDropOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
   useEffect(() => {
     if (!router.isReady || !user) return;
-    // Employees can only view their own profile
-    const isEmployeeRole = user.role === 'employee' || user.role === 'team_lead';
     const isSelfNav = user.employeeId === id;
-    if (isEmployeeRole && !isSelfNav && !['super_admin', 'hr_admin', 'manager'].includes(user.role)) {
-      // Redirect employee trying to view someone else's profile
+    // Employees/team_leads can only view their own profile
+    if (['employee', 'team_lead'].includes(user.role) && !isSelfNav) {
       if (user.employeeId) router.replace(`/employees/${user.employeeId}`);
       else router.replace('/');
       return;
     }
     setLoading(true);
-    employeesAPI.get(id).then(r => setEmp(r.data)).catch(() => {
-      // If access denied, redirect to own profile
-      if (user.employeeId) router.replace(`/employees/${user.employeeId}`);
-      else router.replace('/');
+    employeesAPI.get(id).then(r => setEmp(r.data)).catch((err) => {
+      // 403 = access denied (manager viewing non-report), redirect gracefully
+      if (err.response?.status === 403) {
+        alert(err.response.data?.error || 'Access denied');
+        router.replace(user.employeeId ? `/employees/${user.employeeId}` : '/employees');
+      } else {
+        if (user.employeeId) router.replace(`/employees/${user.employeeId}`);
+        else router.replace('/');
+      }
     }).finally(() => setLoading(false));
   }, [id, router.isReady, user]);
 
@@ -228,6 +269,10 @@ function EmployeeProfileContent() {
     // Load resignation for self-view or HR
     if (isSelf || isHR) {
       employeesAPI.getResignation(id).then(r => setResignation(r.data?.data || null)).catch(() => {});
+    }
+    // Load available shifts for assignment dropdown
+    if (canAssignShift) {
+      workShiftsAPI.list({ status: true }).then(r => setAvailableShifts(r.data || [])).catch(() => {});
     }
   }, [emp, id]);
 
@@ -427,9 +472,35 @@ function EmployeeProfileContent() {
                 <DetailRow icon={TrendingUp} label="Grade / Level" value={emp.grade ? `${emp.grade}${emp.level ? ` · Level ${emp.level}` : ''}` : null} iconColor="text-oe-warning" />
                 <DetailRow icon={Users} label="Manager" value={emp.manager_name} iconColor="text-oe-cyan" />
                 <DetailRow icon={Activity} label="Employment Type" value={fmtType(emp.employment_type)} iconColor="text-oe-primary" />
-                <DetailRow icon={Calendar} label="Hire Date" value={emp.hire_date ? `${fmtDateShort(emp.hire_date)}${tenure ? ` (${tenure} yrs)` : ''}` : null} iconColor="text-oe-success" />
+                <DetailRow icon={Calendar} label="Joining Date" value={emp.hire_date ? `${fmtDateShort(emp.hire_date)}${tenure ? ` (${tenure} yrs)` : ''}` : null} iconColor="text-oe-success" />
                 <DetailRow icon={Calendar} label="Confirmation Date" value={fmtDateShort(emp.confirmation_date)} iconColor="text-oe-warning" />
                 <DetailRow icon={MapPinned} label="Work Location" value={emp.work_location} iconColor="text-oe-purple" />
+                {/* Shift Assignment */}
+                {canAssignShift && !isSelf ? (
+                  <div className="flex items-start gap-2.5 py-1.5">
+                    <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5 bg-oe-surface">
+                      <Timer size={13} className="text-oe-warning" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[11px] text-oe-muted uppercase tracking-wide font-medium leading-tight">Work Shift</div>
+                      <select
+                        className="mt-0.5 w-full text-sm bg-transparent border border-oe-border/50 rounded-md px-2 py-1 text-oe-text focus:outline-none focus:border-oe-primary transition-colors"
+                        value={emp.shift_id || ''}
+                        disabled={shiftSaving}
+                        onChange={e => handleShiftAssign(e.target.value)}
+                      >
+                        <option value="">No shift assigned</option>
+                        {availableShifts.map(s => (
+                          <option key={s.id} value={s.id}>
+                            {s.shift_name} ({s.start_time?.slice(0, 5)} - {s.end_time?.slice(0, 5)})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <DetailRow icon={Timer} label="Work Shift" value={emp.shift_name ? `${emp.shift_name} (${emp.shift_start_time?.slice(0, 5)} - ${emp.shift_end_time?.slice(0, 5)})` : 'Not Assigned'} iconColor="text-oe-warning" />
+                )}
                 {emp.termination_date && <DetailRow icon={LogOut} label="Last Working Day" value={fmtDateShort(emp.termination_date)} iconColor="text-oe-danger" />}
                 {emp.termination_reason && <DetailRow icon={FileText} label="Departure Reason" value={emp.termination_reason} iconColor="text-oe-danger" />}
               </div>
@@ -1194,7 +1265,7 @@ function EmployeeProfileContent() {
                 <input type="email" className="input" value={editForm.work_email || ''} onChange={e => setEditForm({ ...editForm, work_email: e.target.value })} />
               </div>
               <div>
-                <label className="label">Hire Date</label>
+                <label className="label">Joining Date</label>
                 <input type="date" className="input" value={editForm.hire_date || ''} onChange={e => setEditForm({ ...editForm, hire_date: e.target.value })} />
               </div>
               <div>
@@ -1210,6 +1281,78 @@ function EmployeeProfileContent() {
                   <option value="">Select position...</option>
                   {positions.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
                 </select>
+              </div>
+              {/* Manager Selection */}
+              <div className="sm:col-span-2 relative" ref={managerRef}>
+                <label className="label">Manager</label>
+                {(() => {
+                  const selectedMgr = allEmployees.find(e => e.id === editForm.manager_id);
+                  const filtered = allEmployees.filter(e => {
+                    const name = `${e.first_name} ${e.last_name} ${e.employee_id || ''}`.toLowerCase();
+                    return name.includes(managerSearch.toLowerCase());
+                  });
+                  return (
+                    <>
+                      <div
+                        className="input flex items-center gap-2 cursor-pointer"
+                        onClick={() => setManagerDropOpen(!managerDropOpen)}
+                      >
+                        <Search size={13} className="text-oe-muted flex-shrink-0" />
+                        {managerDropOpen ? (
+                          <input
+                            autoFocus
+                            className="flex-1 bg-transparent outline-none text-sm text-oe-text placeholder:text-oe-muted"
+                            placeholder="Search employees..."
+                            value={managerSearch}
+                            onChange={e => setManagerSearch(e.target.value)}
+                            onClick={e => e.stopPropagation()}
+                          />
+                        ) : (
+                          <span className={`flex-1 text-sm truncate ${selectedMgr ? 'text-oe-text' : 'text-oe-muted'}`}>
+                            {selectedMgr ? `${selectedMgr.first_name} ${selectedMgr.last_name}` : 'Select manager...'}
+                          </span>
+                        )}
+                        {editForm.manager_id && (
+                          <button
+                            type="button"
+                            onClick={e => { e.stopPropagation(); setEditForm({ ...editForm, manager_id: '' }); setManagerSearch(''); }}
+                            className="p-0.5 rounded hover:bg-oe-surface text-oe-muted hover:text-oe-danger transition-colors"
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                        <ChevronDown size={14} className={`text-oe-muted flex-shrink-0 transition-transform ${managerDropOpen ? 'rotate-180' : ''}`} />
+                      </div>
+                      {managerDropOpen && (
+                        <div className="absolute z-50 left-0 right-0 mt-1 bg-oe-card border border-oe-border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                          {filtered.length === 0 ? (
+                            <div className="px-3 py-4 text-xs text-oe-muted text-center">No employees found</div>
+                          ) : filtered.map(e => (
+                            <button
+                              key={e.id}
+                              type="button"
+                              className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-oe-surface transition-colors ${e.id === editForm.manager_id ? 'bg-oe-primary/10 text-oe-primary font-medium' : 'text-oe-text'}`}
+                              onClick={() => {
+                                setEditForm({ ...editForm, manager_id: e.id });
+                                setManagerDropOpen(false);
+                                setManagerSearch('');
+                              }}
+                            >
+                              <div className="w-6 h-6 rounded-full bg-oe-surface flex items-center justify-center text-[10px] font-semibold text-oe-muted flex-shrink-0 border border-oe-border/50">
+                                {e.first_name?.[0]}{e.last_name?.[0]}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="truncate">{e.first_name} {e.last_name}</div>
+                                <div className="text-[11px] text-oe-muted truncate">{e.position_title || e.employee_id || ''}{e.department_name ? ` · ${e.department_name}` : ''}</div>
+                              </div>
+                              {e.id === editForm.manager_id && <CheckCircle2 size={14} className="text-oe-primary flex-shrink-0" />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
               <div>
                 <label className="label">Employment Type</label>
@@ -1229,6 +1372,28 @@ function EmployeeProfileContent() {
                 <label className="label">Work Location</label>
                 <input className="input" placeholder="e.g. Office, Remote, Hybrid" value={editForm.work_location || ''} onChange={e => setEditForm({ ...editForm, work_location: e.target.value })} />
               </div>
+              {/* Shift Assignment — visible to HR, managers, team leads viewing subordinates */}
+              {canAssignShift && (
+                <div className="sm:col-span-2">
+                  <label className="label">Work Shift</label>
+                  <select
+                    className="input"
+                    value={editForm.shift_id || ''}
+                    onChange={e => {
+                      setEditForm({ ...editForm, shift_id: e.target.value });
+                      // Also assign via the dedicated endpoint so it takes effect immediately
+                      handleShiftAssign(e.target.value);
+                    }}
+                  >
+                    <option value="">No shift assigned</option>
+                    {availableShifts.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.shift_name} ({s.start_time?.slice(0, 5)} - {s.end_time?.slice(0, 5)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           )}
 

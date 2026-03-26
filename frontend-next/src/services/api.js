@@ -147,6 +147,7 @@ export const attendanceAPI = {
   streamUrl: (token) => `${API_URL}/attendance/stream?token=${encodeURIComponent(token)}`,
   syncStatus: () => api.get('/attendance/sync-status'),
   syncNow: () => api.post('/attendance/sync-now'),
+  analytics: (params) => api.get('/attendance/analytics', { params }),
 };
 
 export const auditLogsAPI = {
@@ -308,6 +309,55 @@ export const resignationsAPI = {
 export const attendanceSettingsAPI = {
   get: () => api.get('/attendance/settings'),
   update: (data) => api.put('/attendance/settings', data),
+};
+
+export const workShiftsAPI = {
+  list: (params) => api.get('/work-shifts', { params }),
+  get: (id) => api.get(`/work-shifts/${id}`),
+  create: (data) => api.post('/work-shifts', data),
+  update: (id, data) => api.put(`/work-shifts/${id}`, data),
+  delete: (id) => api.delete(`/work-shifts/${id}`),
+  assign: (employeeId, data) => api.patch(`/work-shifts/assign/${employeeId}`, data),
+  team: () => api.get('/work-shifts/team'),
+};
+
+export const transportAPI = {
+  // Stats
+  stats: () => api.get('/transport/stats'),
+  // Vehicles
+  listVehicles: () => api.get('/transport/vehicles'),
+  createVehicle: (data) => api.post('/transport/vehicles', data),
+  updateVehicle: (id, data) => api.put(`/transport/vehicles/${id}`, data),
+  deleteVehicle: (id) => api.delete(`/transport/vehicles/${id}`),
+  // Routes
+  listRoutes: (params) => api.get('/transport/routes', { params }),
+  getRoute: (id) => api.get(`/transport/routes/${id}`),
+  createRoute: (data) => api.post('/transport/routes', data),
+  updateRoute: (id, data) => api.put(`/transport/routes/${id}`, data),
+  deleteRoute: (id) => api.delete(`/transport/routes/${id}`),
+  // Stops
+  addStop: (routeId, data) => api.post(`/transport/routes/${routeId}/stops`, data),
+  updateStop: (id, data) => api.put(`/transport/stops/${id}`, data),
+  deleteStop: (id) => api.delete(`/transport/stops/${id}`),
+  // Enrollments
+  myEnrollment: () => api.get('/transport/my-enrollment'),
+  enroll: (data) => api.post('/transport/enroll', data),
+  cancelEnrollment: () => api.put('/transport/enrollment/cancel'),
+  listEnrollments: (params) => api.get('/transport/enrollments', { params }),
+  approveEnrollment: (id, data) => api.put(`/transport/enrollments/${id}/approve`, data),
+  rejectEnrollment: (id) => api.put(`/transport/enrollments/${id}/reject`),
+  suspendEnrollment: (id) => api.put(`/transport/enrollments/${id}/suspend`),
+  activateEnrollment: (id) => api.put(`/transport/enrollments/${id}/activate`),
+  assignEnrollment: (id, data) => api.put(`/transport/enrollments/${id}/assign`, data),
+  // Usage
+  listUsage: (params) => api.get('/transport/usage', { params }),
+  markUsage: (data) => api.post('/transport/usage', data),
+  myHistory: () => api.get('/transport/my-history'),
+  // Issues
+  listIssues: (params) => api.get('/transport/issues', { params }),
+  createIssue: (data) => api.post('/transport/issues', data),
+  resolveIssue: (id) => api.put(`/transport/issues/${id}/resolve`),
+  closeIssue: (id) => api.put(`/transport/issues/${id}/close`),
 };
 
 export default api;

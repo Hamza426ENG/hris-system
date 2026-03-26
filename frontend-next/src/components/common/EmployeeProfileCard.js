@@ -160,7 +160,7 @@ export default function EmployeeProfileCard({ employee = {}, showBanking = false
               <InfoItem icon={TrendingUp} label="Grade / Level" value={gradeValue} iconColor="text-oe-warning" />
               <InfoItem icon={Users} label="Manager" value={manager_name} iconColor="text-oe-cyan" />
               <InfoItem icon={Activity} label="Employment Type" value={formatType(employment_type)} iconColor="text-oe-primary" />
-              <InfoItem icon={Calendar} label="Hire Date" value={hireDateValue} iconColor="text-oe-success" />
+              <InfoItem icon={Calendar} label="Joining Date" value={hireDateValue} iconColor="text-oe-success" />
               <InfoItem icon={Calendar} label="Confirmation Date" value={formatDate(confirmation_date)} iconColor="text-oe-warning" />
               <InfoItem icon={MapPinned} label="Work Location" value={work_location} iconColor="text-oe-purple" />
             </div>

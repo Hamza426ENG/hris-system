@@ -205,7 +205,41 @@ router.get('/today', async (req, res) => {
       [employeeId]
     );
 
-    res.json({ record: result.rows[0] || null });
+    const record = result.rows[0] || null;
+
+    // For active shifts, compute elapsed seconds server-side.
+    //
+    // node-zklib stores device wall-clock time using the SERVER's timezone.
+    // So getHours()/getDate()/etc. on the stored Date return device-local
+    // values.  For "now" we must convert to the device timezone via Intl.
+    if (record && record.check_in && !record.check_out) {
+      const deviceTZ = process.env.ZKTECO_DEVICE_TIMEZONE || 'Asia/Karachi';
+      const ci = new Date(record.check_in);
+
+      // check-in: server-local components = device-local components
+      const ciSec  = ci.getHours() * 3600 + ci.getMinutes() * 60 + ci.getSeconds();
+      const ciDate = `${ci.getFullYear()}-${String(ci.getMonth() + 1).padStart(2, '0')}-${String(ci.getDate()).padStart(2, '0')}`;
+
+      // now: convert real UTC to device timezone
+      const nowObj = new Date();
+      const nowTimeParts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: deviceTZ, hour12: false,
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+      }).formatToParts(nowObj);
+      const tp = (t) => parseInt(nowTimeParts.find(p => p.type === t)?.value || '0', 10);
+      const nowSec = tp('hour') * 3600 + tp('minute') * 60 + tp('second');
+
+      const nowDate = new Intl.DateTimeFormat('en-CA', {
+        timeZone: deviceTZ, year: 'numeric', month: '2-digit', day: '2-digit',
+      }).format(nowObj); // "YYYY-MM-DD"
+
+      const dayDiff = Math.round((new Date(nowDate) - new Date(ciDate)) / 86400000);
+      let elapsed = dayDiff * 86400 + (nowSec - ciSec);
+      if (elapsed < 0) elapsed = 0;
+      record.elapsed_seconds = Math.floor(elapsed);
+    }
+
+    res.json({ record });
   } catch (err) {
     console.error('GET /attendance/today error:', err);
     res.status(500).json({ error: 'Failed to fetch today\'s attendance' });
@@ -419,6 +453,7 @@ router.get('/summary/:employeeId', async (req, res) => {
     const empRes = await db.query(
       `SELECT e.id, e.first_name, e.last_name, e.employee_id AS emp_code,
               e.department_id, e.wfh_percentage, e.wfo_percentage,
+              e.hire_date,
               d.name AS department_name
        FROM employees e
        LEFT JOIN departments d ON d.id = e.department_id
@@ -427,6 +462,12 @@ router.get('/summary/:employeeId', async (req, res) => {
     );
     if (empRes.rows.length === 0) return res.status(404).json({ error: 'Employee not found' });
     const employee = empRes.rows[0];
+
+    // Don't show attendance before the employee's joining date
+    if (employee.hire_date) {
+      const hireStr = new Date(employee.hire_date).toISOString().split('T')[0];
+      if (startDate < hireStr) startDate = hireStr;
+    }
 
     // ── Last working day record ──────────────────────────────────────────
     const lastDayRes = await db.query(
@@ -515,25 +556,72 @@ router.get('/summary/:employeeId', async (req, res) => {
     const last30 = last30Res.rows[0];
 
     // ── Detailed records for the table ───────────────────────────────────
+    // Generate a row for EVERY working day (Mon-Fri) in the range, not just
+    // days with a punch.  Days without an attendance record are filled in as
+    // 'absent' or 'leave' depending on the leave_requests table.
     const page  = Math.max(1, parseInt(req.query.page)  || 1);
     const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 100));
     const offset = (page - 1) * limit;
 
+    // Cap endDate to today — don't show future working days as absent
+    const cappedEnd = endDate < todayStr ? endDate : todayStr;
+
     const [countRes, recordsRes] = await Promise.all([
       db.query(
-        `SELECT COUNT(*) FROM attendance_records ar WHERE ar.employee_id = $1 AND ar.date >= $2 AND ar.date <= $3`,
-        [employeeId, startDate, endDate]
+        `WITH working_days AS (
+           SELECT d::date AS date
+           FROM generate_series($1::date, $2::date, '1 day') d
+           WHERE EXTRACT(DOW FROM d) BETWEEN 1 AND 5
+         )
+         SELECT COUNT(*) FROM working_days`,
+        [startDate, cappedEnd]
       ),
       db.query(
-        `SELECT ar.id, ar.date, ar.check_in, ar.check_out, ar.work_hours,
-                ar.status, ar.notes, ar.source, ar.device_id,
-                dc.name AS device_name
-         FROM attendance_records ar
-         LEFT JOIN device_connections dc ON dc.id = ar.device_id
-         WHERE ar.employee_id = $1 AND ar.date >= $2 AND ar.date <= $3
-         ORDER BY ar.date DESC, ar.check_in DESC
+        `WITH working_days AS (
+           SELECT d::date AS date
+           FROM generate_series($2::date, $3::date, '1 day') d
+           WHERE EXTRACT(DOW FROM d) BETWEEN 1 AND 5
+         ),
+         leave_days AS (
+           SELECT d::date AS date
+           FROM leave_requests lr,
+                LATERAL generate_series(
+                  GREATEST(lr.start_date, $2::date),
+                  LEAST(lr.end_date, $3::date),
+                  '1 day'
+                ) d
+           WHERE lr.employee_id = $1
+             AND lr.status = 'approved'
+             AND lr.start_date <= $3
+             AND lr.end_date >= $2
+             AND EXTRACT(DOW FROM d) BETWEEN 1 AND 5
+         )
+         SELECT
+           COALESCE(ar.id, md5(wd.date::text || $1)::uuid) AS id,
+           wd.date,
+           ar.check_in,
+           ar.check_out,
+           ar.work_hours,
+           CASE
+             WHEN ar.id IS NOT NULL THEN COALESCE(ar.status, 'present')
+             WHEN wd.date IN (SELECT date FROM leave_days) THEN 'leave'
+             ELSE 'absent'
+           END AS status,
+           ar.notes,
+           COALESCE(ar.source, CASE
+             WHEN wd.date IN (SELECT date FROM leave_days) THEN 'system'
+             ELSE NULL
+           END) AS source,
+           ar.device_id,
+           dc.name AS device_name
+         FROM working_days wd
+         LEFT JOIN attendance_records ar
+           ON ar.employee_id = $1 AND ar.date = wd.date
+         LEFT JOIN device_connections dc
+           ON dc.id = ar.device_id
+         ORDER BY wd.date DESC
          LIMIT $4 OFFSET $5`,
-        [employeeId, startDate, endDate, limit, offset]
+        [employeeId, startDate, cappedEnd, limit, offset]
       ),
     ]);
 
@@ -604,6 +692,187 @@ router.get('/summary/:employeeId', async (req, res) => {
 // ═════════════════════════════════════════════════════════════════════════════
 // ADMIN / HR / TEAM-LEAD ENDPOINTS
 // ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /attendance/analytics?period=today|last_7_days|this_month|this_year
+ *
+ * Returns aggregated attendance analytics for dashboards (HR/Admin only).
+ *   - Overall: present / absent / leave counts
+ *   - By region (department location): same breakdown
+ *   - Late vs on-time distribution
+ *   - Daily trend (per-day present/absent counts)
+ */
+router.get('/analytics', authorize(...ADMIN_ROLES), async (req, res) => {
+  try {
+    const period = req.query.period || 'today';
+    const now = new Date();
+    let startDate, endDate;
+    endDate = now.toISOString().split('T')[0];
+
+    if (period === 'last_7_days') {
+      const d = new Date(now); d.setDate(d.getDate() - 6);
+      startDate = d.toISOString().split('T')[0];
+    } else if (period === 'this_month') {
+      startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    } else if (period === 'this_year') {
+      startDate = `${now.getFullYear()}-01-01`;
+    } else {
+      // today
+      startDate = endDate;
+    }
+
+    // 1. Total active employees
+    const totalEmpRes = await db.query("SELECT COUNT(*) AS cnt FROM employees WHERE status = 'active'");
+    const totalEmployees = parseInt(totalEmpRes.rows[0].cnt);
+
+    // 2. Working days in the range
+    const workingDaysRes = await db.query(
+      `SELECT d::date AS date
+       FROM generate_series($1::date, $2::date, '1 day') d
+       WHERE EXTRACT(DOW FROM d) BETWEEN 1 AND 5`,
+      [startDate, endDate]
+    );
+    const workingDays = workingDaysRes.rows.map(r => r.date);
+    const numWorkingDays = workingDays.length;
+    if (numWorkingDays === 0) {
+      return res.json({ period, startDate, endDate, totalEmployees, overview: { present: 0, absent: 0, leave: 0 }, byRegion: [], lateVsOnTime: { late: 0, onTime: 0 }, dailyTrend: [] });
+    }
+
+    // 3. Present counts (employees with attendance records)
+    const presentRes = await db.query(
+      `SELECT ar.date, ar.employee_id, ar.check_in, ar.work_hours
+       FROM attendance_records ar
+       JOIN employees e ON e.id = ar.employee_id AND e.status = 'active'
+       WHERE ar.date >= $1 AND ar.date <= $2 AND ar.check_in IS NOT NULL`,
+      [startDate, endDate]
+    );
+
+    // 4. Leave days
+    const leaveRes = await db.query(
+      `SELECT DISTINCT d::date AS date, lr.employee_id
+       FROM leave_requests lr,
+            LATERAL generate_series(
+              GREATEST(lr.start_date, $1::date),
+              LEAST(lr.end_date, $2::date),
+              '1 day'
+            ) d
+       WHERE lr.status = 'approved'
+         AND lr.start_date <= $2
+         AND lr.end_date >= $1
+         AND EXTRACT(DOW FROM d) BETWEEN 1 AND 5`,
+      [startDate, endDate]
+    );
+    const leaveSet = new Set(leaveRes.rows.map(r => `${r.employee_id}|${r.date.toISOString().split('T')[0]}`));
+    const presentSet = new Set(presentRes.rows.map(r => `${r.employee_id}|${r.date.toISOString().split('T')[0]}`));
+
+    // 5. Overall counts
+    const totalSlots = totalEmployees * numWorkingDays;
+    const presentCount = presentSet.size;
+    const leaveCount = [...leaveSet].filter(k => !presentSet.has(k)).length;
+    const absentCount = Math.max(0, totalSlots - presentCount - leaveCount);
+
+    // 6. By region (department location)
+    // Always show all three office regions even if some have no employees yet
+    const ALL_REGIONS = ['Islamabad', 'Lahore', 'Peru'];
+
+    const regionRes = await db.query(
+      `SELECT COALESCE(d.location, 'Islamabad') AS region, e.id AS employee_id
+       FROM employees e
+       LEFT JOIN departments d ON d.id = e.department_id
+       WHERE e.status = 'active'`,
+      []
+    );
+    const empByRegion = {};
+    for (const region of ALL_REGIONS) empByRegion[region] = new Set();
+    for (const r of regionRes.rows) {
+      const region = ALL_REGIONS.includes(r.region) ? r.region : 'Islamabad';
+      empByRegion[region].add(r.employee_id);
+    }
+
+    const byRegion = ALL_REGIONS.map(region => {
+      const empSet = empByRegion[region];
+      const empCount = empSet.size;
+      const regionSlots = empCount * numWorkingDays;
+      let regionPresent = 0, regionLeave = 0;
+
+      for (const key of presentSet) {
+        const empId = key.split('|')[0];
+        if (empSet.has(empId)) regionPresent++;
+      }
+      for (const key of leaveSet) {
+        const empId = key.split('|')[0];
+        if (empSet.has(empId) && !presentSet.has(key)) regionLeave++;
+      }
+
+      return {
+        region,
+        employees: empCount,
+        present: regionPresent,
+        leave: regionLeave,
+        absent: Math.max(0, regionSlots - regionPresent - regionLeave),
+      };
+    });
+
+    // 7. Late vs On-Time (based on check-in hour — late if >= 20:00 for 7PM shift)
+    // Shift starts at ~7PM, so late threshold is configurable
+    const { lateHH, lateMM } = await getAttendanceThresholds();
+    let lateCount = 0, onTimeCount = 0;
+    for (const r of presentRes.rows) {
+      if (!r.check_in) continue;
+      const ci = new Date(r.check_in);
+      const h = ci.getHours(), m = ci.getMinutes();
+      if (h > lateHH || (h === lateHH && m > lateMM)) {
+        lateCount++;
+      } else {
+        onTimeCount++;
+      }
+    }
+
+    // 8. Daily trend
+    const dailyPresent = {};
+    const dailyLeave = {};
+    for (const r of presentRes.rows) {
+      const d = r.date.toISOString().split('T')[0];
+      dailyPresent[d] = (dailyPresent[d] || 0) + 1;
+    }
+    for (const key of leaveSet) {
+      const d = key.split('|')[1];
+      if (!presentSet.has(key)) {
+        dailyLeave[d] = (dailyLeave[d] || 0) + 1;
+      }
+    }
+
+    const dailyTrend = workingDays.map(wd => {
+      const d = wd.toISOString().split('T')[0];
+      const p = dailyPresent[d] || 0;
+      const l = dailyLeave[d] || 0;
+      return { date: d, present: p, leave: l, absent: Math.max(0, totalEmployees - p - l) };
+    });
+
+    // 9. Avg work hours per day
+    let totalHours = 0, daysWithHours = 0;
+    for (const r of presentRes.rows) {
+      if (r.work_hours && parseFloat(r.work_hours) > 0) {
+        totalHours += parseFloat(r.work_hours);
+        daysWithHours++;
+      }
+    }
+
+    res.json({
+      period, startDate, endDate,
+      totalEmployees,
+      numWorkingDays,
+      overview: { present: presentCount, absent: absentCount, leave: leaveCount, total: totalSlots },
+      byRegion,
+      lateVsOnTime: { late: lateCount, onTime: onTimeCount },
+      dailyTrend,
+      avgWorkHours: daysWithHours > 0 ? parseFloat((totalHours / daysWithHours).toFixed(1)) : 0,
+    });
+  } catch (err) {
+    console.error('GET /attendance/analytics error:', err);
+    res.status(500).json({ error: 'Failed to fetch analytics' });
+  }
+});
 
 /**
  * GET /attendance/sync-status

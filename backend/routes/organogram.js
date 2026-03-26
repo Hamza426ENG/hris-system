@@ -5,10 +5,7 @@ const { authenticate } = require('../middleware/auth');
 const router = express.Router();
 router.use(authenticate);
 
-// Only super_admin and hr_admin see the full company-wide tree.
-// Everyone else sees their own subtree (rooted at their own employee record).
-const FULL_ACCESS_ROLES = ['super_admin', 'hr_admin'];
-
+// Everyone sees the full company tree. Profile access is controlled separately.
 router.get('/', async (req, res) => {
   try {
     const result = await db.query(`
@@ -36,25 +33,12 @@ router.get('/', async (req, res) => {
 
     const tree = buildTree(employees);
 
-    const payload = {
+    res.json({
       all: employees,
       current_employee_id: req.user.employee_id,
-    };
-
-    if (!FULL_ACCESS_ROLES.includes(req.user.role)) {
-      const findSubtree = (nodes, empId) => {
-        for (const node of nodes) {
-          if (node.id === empId) return node;
-          const found = findSubtree(node.children || [], empId);
-          if (found) return found;
-        }
-        return null;
-      };
-      const subtree = findSubtree(tree, req.user.employee_id);
-      return res.json({ ...payload, tree: subtree ? [subtree] : [], is_partial: true });
-    }
-
-    res.json({ ...payload, tree, is_partial: false });
+      tree,
+      is_partial: false,
+    });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }

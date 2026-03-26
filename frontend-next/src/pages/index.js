@@ -224,6 +224,14 @@ function DashboardContent() {
   const router = useRouter();
   const { user } = useAuth();
 
+  // On first login, employees land on announcements (flag set by login page)
+  useEffect(() => {
+    if (user?.role === 'employee' && typeof window !== 'undefined' && sessionStorage.getItem('hris_just_logged_in') === '1') {
+      sessionStorage.removeItem('hris_just_logged_in');
+      router.replace('/announcements');
+    }
+  }, [user, router]);
+
   const loadData = useCallback(() => {
     setLoading(true);
     dashboardAPI.stats().then(res => setData(res.data)).catch(console.error).finally(() => setLoading(false));

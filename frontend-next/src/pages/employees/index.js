@@ -71,13 +71,14 @@ function EmployeesContent() {
   const totalPages = Math.ceil(total / LIMIT);
   const isHR = ['super_admin', 'hr_admin'].includes(user?.role);
   const isSuperAdmin = user?.role === 'super_admin';
+  const canViewList = isHR || user?.role === 'manager';
 
-  // Only HR and super_admin can view the employees list; everyone else goes to their own profile
+  // Only HR, super_admin, and managers can view the employees list; everyone else goes to their own profile
   useEffect(() => {
-    if (user && !isHR) {
+    if (user && !canViewList) {
       router.replace(user.employeeId ? `/employees/${user.employeeId}` : '/');
     }
-  }, [user, isHR, router]);
+  }, [user, canViewList, router]);
 
   // load(pageNum) — pass explicit page so filter changes reset to page 1 cleanly
   const load = useCallback(async (pageNum = 1) => {
@@ -132,7 +133,7 @@ function EmployeesContent() {
 
   const handleSave = async () => {
     if (!form.first_name || !form.last_name || !form.hire_date) {
-      alert('First name, last name and hire date are required'); return;
+      alert('First name, last name and joining date are required'); return;
     }
     setSaving(true);
     try {
@@ -173,7 +174,7 @@ function EmployeesContent() {
   };
 
   const exportCSV = () => {
-    const headers = ['ID', 'Name', 'Email', 'Department', 'Position', 'Status', 'Hire Date'];
+    const headers = ['ID', 'Name', 'Email', 'Department', 'Position', 'Status', 'Joining Date'];
     const rows = employees.map(e => [e.employee_id, `${e.first_name} ${e.last_name}`, e.work_email, e.department_name, e.position_title, e.status, fmtDate(e.hire_date)]);
     const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -333,7 +334,7 @@ function EmployeesContent() {
                 <th className="table-header">Department</th>
                 <th className="table-header">Position</th>
                 <th className="table-header">Type</th>
-                <th className="table-header">Hire Date</th>
+                <th className="table-header">Joining Date</th>
                 <th className="table-header">Status</th>
                 <th className="table-header">Actions</th>
               </tr>
@@ -532,7 +533,7 @@ function EmployeesContent() {
               <FormField form={form} setForm={setForm} label="Manager" name="manager_id" options={managers.map(m => ({ value: m.id, label: `${m.first_name} ${m.last_name}` }))} />
               <FormField form={form} setForm={setForm} label="Employment Type" name="employment_type" options={EMPLOYMENT_TYPES.map(t => ({ value: t, label: t.replace('_', ' ') }))} />
               <FormField form={form} setForm={setForm} label="Status" name="status" options={STATUSES.map(s => ({ value: s, label: s.replace('_', ' ') }))} />
-              <FormField form={form} setForm={setForm} label="Hire Date" name="hire_date" type="date" required />
+              <FormField form={form} setForm={setForm} label="Joining Date" name="hire_date" type="date" required />
               <FormField form={form} setForm={setForm} label="Confirmation Date" name="confirmation_date" type="date" />
               <FormField form={form} setForm={setForm} label="Work Location" name="work_location" />
             </div>

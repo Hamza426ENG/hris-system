@@ -8,10 +8,10 @@
   --oe-surface:      255 255 255;   /* #FFFFFF */
   --oe-card:         255 255 255;   /* #FFFFFF */
   --oe-border:       221 214 254;   /* #DDD6FE violet-200 */
-  --oe-primary:      124 58 236;    /* #7C3AEC brand violet */
-  --oe-primary-hover:109 40 217;    /* #6D28D9 violet-700 */
-  --oe-accent:       124 58 236;    /* #7C3AEC brand violet */
-  --oe-purple:       124 58 236;    /* #7C3AEC brand violet */
+  --oe-primary:      74 15 112;     /* #4A0F70 EdgeVerse brand purple */
+  --oe-primary-hover:58 10 90;      /* #3A0A5A darker brand purple */
+  --oe-accent:       74 15 112;     /* #4A0F70 EdgeVerse brand purple */
+  --oe-purple:       74 15 112;     /* #4A0F70 EdgeVerse brand purple */
   --oe-cyan:         8 145 178;     /* #0891B2 */
   --oe-success:      5 150 105;     /* #059669 */
   --oe-warning:      217 119 6;     /* #D97706 */
@@ -25,10 +25,10 @@
   --oe-surface:      30 20 60;      /* #1E143C dark violet surface */
   --oe-card:         30 20 60;      /* #1E143C */
   --oe-border:       75 50 130;     /* #4B3282 violet border */
-  --oe-primary:      167 139 250;   /* #A78BFA violet-400 */
-  --oe-primary-hover:139 92 246;    /* #8B5CF6 violet-500 */
-  --oe-accent:       167 139 250;   /* #A78BFA violet-400 */
-  --oe-purple:       192 132 252;   /* #C084FC purple-400 */
+  --oe-primary:      148 100 200;   /* #9464C8 lighter brand purple for dark */
+  --oe-primary-hover:128 75 180;    /* #804BB4 */
+  --oe-accent:       148 100 200;   /* #9464C8 */
+  --oe-purple:       158 110 210;   /* #9E6ED2 */
   --oe-cyan:         34 211 238;    /* #22d3ee */
   --oe-success:      52 211 153;    /* #34d399 */
   --oe-warning:      251 191 36;    /* #fbbf24 */

@@ -5,7 +5,7 @@ import { attendanceAPI, employeesAPI } from '@/services/api';
 import {
   Fingerprint, Clock, LogIn, LogOut, Calendar, TrendingUp,
   Search, Download, ChevronDown, AlertCircle, ChevronLeft,
-  ChevronRight, RefreshCw, X, Info, Pencil, Trash2
+  ChevronRight, RefreshCw, X, Info, Pencil, Trash2, Plus
 } from 'lucide-react';
 import PrivateRoute from '@/components/auth/PrivateRoute';
 import Layout from '@/components/layout/Layout';
@@ -54,12 +54,12 @@ function fmtHoursLong(h) {
 
 function StatCircle({ label, value, sub, color = 'primary' }) {
   const ringColors = {
-    primary: 'border-oe-primary/30 bg-oe-primary/5',
-    success: 'border-oe-success/30 bg-oe-success/5',
-    warning: 'border-oe-warning/30 bg-oe-warning/5',
-    danger:  'border-oe-danger/30 bg-oe-danger/5',
-    purple:  'border-oe-purple/30 bg-oe-purple/5',
-    cyan:    'border-oe-cyan/30 bg-oe-cyan/5',
+    primary: 'border-oe-primary/50 bg-oe-primary/8',
+    success: 'border-oe-success/50 bg-oe-success/8',
+    warning: 'border-oe-warning/50 bg-oe-warning/8',
+    danger:  'border-oe-danger/50 bg-oe-danger/8',
+    purple:  'border-oe-purple/50 bg-oe-purple/8',
+    cyan:    'border-oe-cyan/50 bg-oe-cyan/8',
     muted:   'border-oe-border bg-oe-surface',
   };
   const textColors = {
@@ -71,11 +71,25 @@ function StatCircle({ label, value, sub, color = 'primary' }) {
     cyan:    'text-oe-cyan',
     muted:   'text-oe-muted',
   };
+
+  // Split AM/PM from time values like "07:35 PM" → digits="07:35", period="PM"
+  const str = String(value || '');
+  const ampmMatch = str.match(/^(.+?)\s*(AM|PM)$/i);
+  const digits = ampmMatch ? ampmMatch[1] : str;
+  const period = ampmMatch ? ampmMatch[2].toUpperCase() : null;
+
   return (
     <div className="flex flex-col items-center gap-1.5">
-      <div className={`w-[4.5rem] h-[4.5rem] rounded-full border-[1.5px] flex flex-col items-center justify-center ${ringColors[color]}`}>
-        <div className={`text-sm font-bold leading-tight ${textColors[color]}`}>{value}</div>
-        {sub && <div className="text-[9px] text-oe-muted mt-0.5">{sub}</div>}
+      <div className={`w-[5rem] h-[5rem] rounded-full border-2 flex flex-col items-center justify-center shadow-sm ${ringColors[color]}`}>
+        <div className={`text-sm font-bold leading-none tabular-nums ${textColors[color]}`}>
+          {digits}
+        </div>
+        {period && (
+          <div className={`text-[10px] font-bold mt-1 tracking-wider ${textColors[color]} opacity-70`}>
+            {period}
+          </div>
+        )}
+        {!period && sub && <div className="text-[9px] text-oe-muted mt-0.5">{sub}</div>}
       </div>
       <span className="text-[11px] text-oe-muted font-medium text-center leading-tight max-w-[90px]">{label}</span>
     </div>
@@ -480,6 +494,448 @@ function EditAttendanceModal({ record, onSave, onClose }) {
   );
 }
 
+// ── Add Attendance Modal ─────────────────────────────────────────────────────
+
+function AddAttendanceModal({ employeeId, employeeName, onSave, onClose }) {
+  const [date, setDate]       = useState('');
+  const [checkIn, setCheckIn] = useState('');
+  const [checkOut, setCheckOut] = useState('');
+  const [status, setStatus]   = useState('present');
+  const [notes, setNotes]     = useState('');
+  const [saving, setSaving]   = useState(false);
+  const [error, setError]     = useState('');
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const handleSubmit = () => {
+    if (!date) { setError('Date is required'); return; }
+    setShowConfirm(true);
+  };
+
+  const handleConfirmedSave = async () => {
+    setShowConfirm(false);
+    setSaving(true);
+    setError('');
+    try {
+      const body = { employee_id: employeeId, date, status };
+      if (checkIn) body.check_in_time = checkIn;
+      if (checkOut) body.check_out_time = checkOut;
+      if (notes) body.notes = notes;
+      await attendanceAPI.createManual(body);
+      onSave();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to add attendance record');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-oe-card border border-oe-border rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-oe-border/50">
+          <h3 className="font-bold text-oe-text flex items-center gap-2">
+            <Plus size={16} className="text-oe-success" /> Add Attendance
+          </h3>
+          <button onClick={onClose} className="text-oe-muted hover:text-oe-text transition-colors"><X size={18} /></button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          {employeeName && (
+            <div className="bg-oe-bg rounded-lg px-3 py-2 text-sm text-oe-muted">{employeeName}</div>
+          )}
+
+          {error && <div className="text-sm text-oe-danger bg-oe-danger/10 border border-oe-danger/20 rounded-lg px-3 py-2">{error}</div>}
+
+          <div>
+            <label className="block text-xs font-semibold text-oe-muted uppercase tracking-wide mb-1">Date</label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-sm text-oe-text focus:border-oe-primary outline-none" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-oe-muted uppercase tracking-wide mb-1">Check In</label>
+              <input type="time" value={checkIn} onChange={e => setCheckIn(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-sm text-oe-text focus:border-oe-primary outline-none" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-oe-muted uppercase tracking-wide mb-1">Check Out</label>
+              <input type="time" value={checkOut} onChange={e => setCheckOut(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-sm text-oe-text focus:border-oe-primary outline-none" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-oe-muted uppercase tracking-wide mb-1">Status</label>
+            <select value={status} onChange={e => setStatus(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-sm text-oe-text focus:border-oe-primary outline-none">
+              <option value="present">Present</option>
+              <option value="absent">Absent</option>
+              <option value="leave">Leave</option>
+              <option value="half_day">Half Day</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-oe-muted uppercase tracking-wide mb-1">Notes</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Optional note..."
+              className="w-full px-3 py-2 rounded-lg border border-oe-border bg-oe-surface text-sm text-oe-text focus:border-oe-primary outline-none resize-none" />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 px-5 py-4 border-t border-oe-border/50">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-oe-border text-sm font-medium text-oe-text hover:bg-oe-bg transition-colors">
+            Cancel
+          </button>
+          <button onClick={handleSubmit} disabled={saving}
+            className="px-4 py-2 rounded-lg bg-oe-success text-sm font-medium text-white hover:opacity-90 transition-opacity disabled:opacity-50">
+            {saving ? 'Adding...' : 'Add Record'}
+          </button>
+        </div>
+      </div>
+
+      {showConfirm && (
+        <ConfirmDialog
+          title="Confirm Add Attendance"
+          message={`Add a manual attendance record for ${date}? This action will be logged.`}
+          confirmLabel="Yes, Add"
+          confirmColor="bg-oe-success"
+          onConfirm={handleConfirmedSave}
+          onCancel={() => setShowConfirm(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Attendance Analytics (Admin/HR) ───────────────────────────────────────────
+
+function AttendanceAnalytics() {
+  const [data, setData]       = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [period, setPeriod]   = useState('today');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await attendanceAPI.analytics({ period });
+      setData(res.data);
+    } catch { setData(null); }
+    finally { setLoading(false); }
+  }, [period]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const PERIODS = [
+    { key: 'today',       label: 'Today' },
+    { key: 'last_7_days', label: 'Last 7 Days' },
+    { key: 'this_month',  label: 'This Month' },
+    { key: 'this_year',   label: 'This Year' },
+  ];
+
+  const PIE_COLORS = { present: '#22C55E', absent: '#EF4444', leave: '#F59E0B' };
+
+  // Dynamic import — recharts is already installed
+  const [charts, setCharts] = useState(null);
+  useEffect(() => {
+    import('recharts').then(mod => setCharts(mod));
+  }, []);
+
+  if (loading || !charts) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="w-6 h-6 border-2 border-oe-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!data) {
+    return <div className="text-center py-16 text-oe-muted text-sm">Failed to load analytics.</div>;
+  }
+
+  const { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid, AreaChart, Area } = charts;
+  const ov = data.overview;
+  const pieData = [
+    { name: 'Present', value: ov.present, color: PIE_COLORS.present },
+    { name: 'Absent',  value: ov.absent,  color: PIE_COLORS.absent },
+    { name: 'Leave',   value: ov.leave,   color: PIE_COLORS.leave },
+  ].filter(d => d.value > 0);
+
+  const ltData = [
+    { name: 'On Time', value: data.lateVsOnTime.onTime, color: '#22C55E' },
+    { name: 'Late',    value: data.lateVsOnTime.late,    color: '#F59E0B' },
+  ].filter(d => d.value > 0);
+
+  const pctPresent = ov.total > 0 ? ((ov.present / ov.total) * 100).toFixed(1) : 0;
+  const pctAbsent  = ov.total > 0 ? ((ov.absent / ov.total) * 100).toFixed(1) : 0;
+
+  const CustomTooltip = ({ active, payload }) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div className="bg-oe-card border border-oe-border shadow-lg rounded-lg px-3 py-2 text-xs">
+        {payload.map((p, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full" style={{ background: p.color || p.fill }} />
+            <span className="text-oe-muted">{p.name}:</span>
+            <span className="font-semibold text-oe-text">{p.value}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+    if (percent < 0.05) return null;
+    const RADIAN = Math.PI / 180;
+    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+    return <text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight={700}>{(percent * 100).toFixed(0)}%</text>;
+  };
+
+  // Format dates for trend chart x-axis
+  const fmtTrendDate = (d) => {
+    const dt = new Date(d + 'T00:00:00');
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Period filter */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {PERIODS.map(p => (
+          <button
+            key={p.key}
+            onClick={() => setPeriod(p.key)}
+            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors ${
+              period === p.key
+                ? 'bg-oe-primary text-white shadow-sm'
+                : 'bg-oe-surface border border-oe-border text-oe-muted hover:text-oe-text hover:bg-oe-bg'
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: 'Total Employees', value: data.totalEmployees, color: 'text-oe-primary', bg: 'bg-oe-primary/10', border: 'border-oe-primary/20' },
+          { label: 'Present', value: ov.present, sub: `${pctPresent}%`, color: 'text-oe-success', bg: 'bg-oe-success/10', border: 'border-oe-success/20' },
+          { label: 'Absent', value: ov.absent, sub: `${pctAbsent}%`, color: 'text-oe-danger', bg: 'bg-oe-danger/10', border: 'border-oe-danger/20' },
+          { label: 'On Leave', value: ov.leave, color: 'text-oe-warning', bg: 'bg-oe-warning/10', border: 'border-oe-warning/20' },
+        ].map(kpi => (
+          <div key={kpi.label} className={`card p-4 border ${kpi.border}`}>
+            <div className="text-xs font-bold text-oe-text uppercase tracking-wide mb-1">{kpi.label}</div>
+            <div className="flex items-baseline gap-2">
+              <div className={`text-2xl font-bold ${kpi.color}`}>{kpi.value}</div>
+              {kpi.sub && <span className={`text-sm font-semibold ${kpi.color} opacity-70`}>{kpi.sub}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Charts row 1: Overview pie + Late vs On-time pie */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Overall Attendance */}
+        <div className="card p-5">
+          <h3 className="text-sm font-bold text-oe-text mb-4">Overall Attendance</h3>
+          {pieData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={240}>
+              <PieChart>
+                <Pie data={pieData} dataKey="value" cx="50%" cy="50%" outerRadius={90} innerRadius={45} labelLine={false} label={renderCustomLabel}>
+                  {pieData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                </Pie>
+                <Tooltip content={<CustomTooltip />} />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-[240px] text-sm text-oe-muted">No data for this period</div>
+          )}
+        </div>
+
+        {/* Late vs On Time */}
+        <div className="card p-5">
+          <h3 className="text-sm font-bold text-oe-text mb-4">Late vs On Time</h3>
+          {ltData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={240}>
+              <PieChart>
+                <Pie data={ltData} dataKey="value" cx="50%" cy="50%" outerRadius={90} innerRadius={45} labelLine={false} label={renderCustomLabel}>
+                  {ltData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                </Pie>
+                <Tooltip content={<CustomTooltip />} />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-[240px] text-sm text-oe-muted">No data for this period</div>
+          )}
+          <div className="flex items-center justify-center gap-6 mt-2 text-xs text-oe-muted">
+            <span>Avg Hours: <strong className="text-oe-text">{data.avgWorkHours}h</strong></span>
+            <span>Working Days: <strong className="text-oe-text">{data.numWorkingDays}</strong></span>
+          </div>
+        </div>
+      </div>
+
+      {/* Region-wise breakdown — individual pie chart per region */}
+      {data.byRegion.length > 0 && (
+        <div className="space-y-5">
+          <h3 className="text-sm font-bold text-oe-text">Region-wise Attendance</h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {data.byRegion.map(r => {
+              const total = r.present + r.absent + r.leave;
+              const rate = total > 0 ? ((r.present / total) * 100).toFixed(1) : 0;
+              const regionPie = [
+                { name: 'Present', value: r.present, color: PIE_COLORS.present },
+                { name: 'Absent',  value: r.absent,  color: PIE_COLORS.absent },
+                { name: 'Leave',   value: r.leave,   color: PIE_COLORS.leave },
+              ].filter(d => d.value > 0);
+
+              return (
+                <div key={r.region} className="card p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-sm font-bold text-oe-text">{r.region}</h4>
+                    <span className="text-[10px] font-semibold text-oe-muted bg-oe-surface px-2 py-0.5 rounded-full">
+                      {r.employees} employees
+                    </span>
+                  </div>
+
+                  {regionPie.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={180}>
+                      <PieChart>
+                        <Pie data={regionPie} dataKey="value" cx="50%" cy="50%" outerRadius={70} innerRadius={35} labelLine={false} label={renderCustomLabel}>
+                          {regionPie.map((d, i) => <Cell key={i} fill={d.color} />)}
+                        </Pie>
+                        <Tooltip content={<CustomTooltip />} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-[180px] text-xs text-oe-muted">No data yet</div>
+                  )}
+
+                  {/* Stats row below chart */}
+                  <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-oe-border/30">
+                    <div className="text-center">
+                      <div className="text-base font-bold text-oe-success">{r.present}</div>
+                      <div className="text-[10px] text-oe-muted">Present</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-base font-bold text-oe-danger">{r.absent}</div>
+                      <div className="text-[10px] text-oe-muted">Absent</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-base font-bold text-oe-warning">{r.leave}</div>
+                      <div className="text-[10px] text-oe-muted">Leave</div>
+                    </div>
+                  </div>
+
+                  {/* Attendance rate bar */}
+                  <div className="flex items-center gap-2 mt-3">
+                    <div className="flex-1 h-2 rounded-full bg-oe-border/30 overflow-hidden">
+                      <div className="h-full rounded-full bg-oe-success transition-all" style={{ width: `${rate}%` }} />
+                    </div>
+                    <span className="text-xs font-bold text-oe-text tabular-nums w-12 text-right">{rate}%</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Combined comparison bar chart */}
+          {data.byRegion.length > 0 && (
+            <div className="card p-5">
+              <h4 className="text-sm font-bold text-oe-text mb-4">Combined Region Comparison</h4>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={data.byRegion} barGap={4}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--oe-border, #e5e7eb)" opacity={0.5} />
+                  <XAxis dataKey="region" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="present" name="Present" fill="#22C55E" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="absent" name="Absent" fill="#EF4444" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="leave" name="Leave" fill="#F59E0B" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Attendance Trend */}
+      {data.dailyTrend.length > 0 && (() => {
+        const trendTitle = {
+          today:       'Today\'s Attendance',
+          last_7_days: 'Last 7 Days Attendance Trend',
+          this_month:  'Monthly Attendance Trend',
+          this_year:   'Yearly Attendance Trend',
+        }[period] || 'Attendance Trend';
+
+        const trendSubtitle = `${data.startDate} — ${data.endDate}`;
+
+        // For "today" with only 1 data point, show as a bar chart instead of area
+        if (data.dailyTrend.length === 1) {
+          const d = data.dailyTrend[0];
+          return (
+            <div className="card p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-oe-text">{trendTitle}</h3>
+                <span className="text-[10px] text-oe-muted">{trendSubtitle}</span>
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={[d]} barGap={8}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--oe-border, #e5e7eb)" opacity={0.5} />
+                  <XAxis dataKey="date" tickFormatter={fmtTrendDate} tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} label={{ value: 'Employees', angle: -90, position: 'insideLeft', style: { fontSize: 10, fill: '#94a3b8' } }} />
+                  <Tooltip content={<CustomTooltip />} labelFormatter={fmtTrendDate} />
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="present" name="Present" fill="#22C55E" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="absent" name="Absent" fill="#EF4444" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="leave" name="Leave" fill="#F59E0B" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          );
+        }
+
+        return (
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-oe-text">{trendTitle}</h3>
+              <span className="text-[10px] text-oe-muted">{trendSubtitle}</span>
+            </div>
+            <ResponsiveContainer width="100%" height={280}>
+              <AreaChart data={data.dailyTrend}>
+                <defs>
+                  <linearGradient id="gradPresent" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#22C55E" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#22C55E" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gradAbsent" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#EF4444" stopOpacity={0.2} />
+                    <stop offset="95%" stopColor="#EF4444" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--oe-border, #e5e7eb)" opacity={0.5} />
+                <XAxis dataKey="date" tickFormatter={fmtTrendDate} tick={{ fontSize: 10 }} label={{ value: 'Date', position: 'insideBottom', offset: -5, style: { fontSize: 10, fill: '#94a3b8' } }} />
+                <YAxis tick={{ fontSize: 11 }} label={{ value: 'Employees', angle: -90, position: 'insideLeft', style: { fontSize: 10, fill: '#94a3b8' } }} />
+                <Tooltip content={<CustomTooltip />} labelFormatter={fmtTrendDate} />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                <Area type="monotone" dataKey="present" name="Present" stroke="#22C55E" strokeWidth={2} fill="url(#gradPresent)" />
+                <Area type="monotone" dataKey="absent" name="Absent" stroke="#EF4444" strokeWidth={2} fill="url(#gradAbsent)" />
+                <Area type="monotone" dataKey="leave" name="Leave" stroke="#F59E0B" strokeWidth={1.5} fill="none" strokeDasharray="4 4" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
 // ── All-Records View (Admin/HR) ───────────────────────────────────────────────
 
 const todayStr = () => new Date().toISOString().split('T')[0];
@@ -497,6 +953,9 @@ function AllRecordsView({ refreshTrigger }) {
   const [endDate, setEnd]             = useState(todayStr());
   const [quickFilter, setQuickFilter] = useState('week'); // 'today'|'week'|'month'|'all'
   const [selectedRecord, setSelected] = useState(null);
+  const [editRec, setEditRec]       = useState(null);
+  const [deleteRec, setDeleteRec]   = useState(null);
+  const [deleting, setDeleting]     = useState(false);
   const limit = 50;
 
   const load = useCallback(async () => {
@@ -523,6 +982,23 @@ function AllRecordsView({ refreshTrigger }) {
 
   // Re-fetch when parent triggers (SSE update or sync)
   useEffect(() => { if (refreshTrigger > 0) load(); }, [refreshTrigger]); // eslint-disable-line
+
+  const handleDeleteRec = async () => {
+    if (!deleteRec) return;
+    setDeleting(true);
+    try {
+      await attendanceAPI.delete(deleteRec.id);
+      setDeleteRec(null);
+      load();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to delete record');
+    } finally { setDeleting(false); }
+  };
+
+  const handleEditSavedRec = () => {
+    setEditRec(null);
+    load();
+  };
 
   // Auto-refresh every 5 minutes to catch new device punches
   useEffect(() => {
@@ -685,19 +1161,20 @@ function AllRecordsView({ refreshTrigger }) {
               <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Work Hours</th>
               <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Status</th>
               <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Source</th>
+              <th className="px-4 py-2.5 text-center font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={10} className="text-center py-12 text-oe-muted">
+                <td colSpan={11} className="text-center py-12 text-oe-muted">
                   <div className="w-7 h-7 border-2 border-oe-primary border-t-transparent rounded-full animate-spin mx-auto mb-2" />
                   <p className="text-sm">Loading attendance records…</p>
                 </td>
               </tr>
             ) : records.length === 0 ? (
               <tr>
-                <td colSpan={10} className="text-center py-12 text-oe-muted">
+                <td colSpan={11} className="text-center py-12 text-oe-muted">
                   <Fingerprint size={28} className="mx-auto mb-2 opacity-20" />
                   <p className="text-sm">No attendance records found</p>
                 </td>
@@ -764,6 +1241,24 @@ function AllRecordsView({ refreshTrigger }) {
                       ) : (
                         <span className="text-[11px] text-oe-muted">Manual</span>
                       )}
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          title="Edit"
+                          onClick={e => { e.stopPropagation(); setEditRec(r); }}
+                          className="p-1.5 rounded-lg hover:bg-oe-primary/10 text-oe-muted hover:text-oe-primary transition-colors"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          title="Delete"
+                          onClick={e => { e.stopPropagation(); setDeleteRec(r); }}
+                          className="p-1.5 rounded-lg hover:bg-oe-danger/10 text-oe-muted hover:text-oe-danger transition-colors"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -851,6 +1346,25 @@ function AllRecordsView({ refreshTrigger }) {
           </div>
         </div>
       )}
+
+      {/* Edit / Delete modals for All Records view */}
+      {editRec && (
+        <EditAttendanceModal
+          record={editRec}
+          onSave={handleEditSavedRec}
+          onClose={() => setEditRec(null)}
+        />
+      )}
+      {deleteRec && (
+        <ConfirmDialog
+          title="Delete Attendance Record"
+          message={`Delete attendance record for ${deleteRec.first_name || ''} ${deleteRec.last_name || ''} on ${fmtDate(deleteRec.date)}? This cannot be undone.`}
+          confirmLabel={deleting ? 'Deleting...' : 'Yes, Delete'}
+          confirmColor="bg-oe-danger"
+          onConfirm={handleDeleteRec}
+          onCancel={() => setDeleteRec(null)}
+        />
+      )}
     </div>
   );
 }
@@ -878,10 +1392,11 @@ function AttendanceContent() {
   const [search, setSearch]         = useState('');
   const [page, setPage]             = useState(1);
   const [selectedRecord, setSelectedRecord] = useState(null);
-  const [viewMode, setViewMode]     = useState('all'); // 'all' | 'employee'
+  const [viewMode, setViewMode]     = useState('analytics'); // 'analytics' | 'all' | 'employee'
   const [editRecord, setEditRecord]         = useState(null);   // record being edited
   const [deleteRecord, setDeleteRecord]     = useState(null);   // record pending delete confirmation
   const [deleting, setDeleting]             = useState(false);
+  const [showAddModal, setShowAddModal]     = useState(false);
 
   const isHRAdmin = ['super_admin', 'hr_admin'].includes(user?.role);
   const isLead    = ['super_admin', 'hr_admin', 'manager', 'team_lead'].includes(user?.role);
@@ -968,7 +1483,7 @@ function AttendanceContent() {
     setLoading(true);
     setLoadError(false);
     try {
-      const params = { period, page, limit: 500 };
+      const params = { period, page, limit: 10 };
       if (period === 'custom') {
         params.start_date = startDate;
         params.end_date = endDate;
@@ -1061,7 +1576,7 @@ function AttendanceContent() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pb-20">
       {/* ── Detail Modal ─────────────────────────────────────────────── */}
       {selectedRecord && (
         <AttendanceDetailModal
@@ -1085,6 +1600,9 @@ function AttendanceContent() {
                 {emp.first_name} {emp.last_name} · {emp.emp_code} · {emp.department_name || '—'}
               </p>
             )}
+            {effectiveViewMode === 'analytics' && (
+              <p className="text-xs text-oe-muted mt-0.5">Attendance Analytics</p>
+            )}
             {effectiveViewMode === 'all' && (
               <p className="text-xs text-oe-muted mt-0.5">All Employees</p>
             )}
@@ -1095,6 +1613,12 @@ function AttendanceContent() {
           {/* View mode toggle for admin/HR */}
           {isHRAdmin && (
             <div className="flex items-center rounded-xl border border-oe-border bg-oe-surface overflow-hidden">
+              <button
+                onClick={() => { setViewMode('analytics'); setEmployeeId(null); }}
+                className={`px-4 py-2 text-xs font-semibold transition-colors ${effectiveViewMode === 'analytics' ? 'bg-oe-primary text-white' : 'text-oe-muted hover:text-oe-text'}`}
+              >
+                Analytics
+              </button>
               <button
                 onClick={() => { setViewMode('all'); setEmployeeId(null); }}
                 className={`px-4 py-2 text-xs font-semibold transition-colors ${effectiveViewMode === 'all' ? 'bg-oe-primary text-white' : 'text-oe-muted hover:text-oe-text'}`}
@@ -1180,7 +1704,12 @@ function AttendanceContent() {
         );
       })()}
 
-      {/* ── All Records View (Admin/HR default) ──────────────────────── */}
+      {/* ── Analytics View (Admin/HR landing) ──────────────────────── */}
+      {effectiveViewMode === 'analytics' && (
+        <AttendanceAnalytics />
+      )}
+
+      {/* ── All Records View (Admin/HR) ──────────────────────────── */}
       {effectiveViewMode === 'all' && (
         <AllRecordsView refreshTrigger={allRefreshTick} />
       )}
@@ -1297,6 +1826,14 @@ function AttendanceContent() {
                   <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-oe-danger" /> Missing I/O</span>
                 </div>
 
+                {isHRAdmin && employeeId && (
+                  <button
+                    onClick={() => setShowAddModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-oe-success text-xs font-semibold text-white hover:opacity-90 transition-opacity"
+                  >
+                    <Plus size={13} /> Add Attendance
+                  </button>
+                )}
                 <button
                   onClick={exportCSV}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-oe-border text-xs font-medium text-oe-text hover:bg-oe-bg transition-colors"
@@ -1306,10 +1843,10 @@ function AttendanceContent() {
               </div>
             </div>
 
-            {/* Table */}
-            <div className="overflow-x-auto">
+            {/* Table — fixed height with internal scroll */}
+            <div className="overflow-auto max-h-[480px]">
               <table className="w-full text-sm">
-                <thead>
+                <thead className="sticky top-0 z-10">
                   <tr className="bg-oe-surface/80">
                     <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide w-14">Sr #</th>
                     <th className="px-4 py-2.5 text-left font-semibold text-[11px] text-oe-muted uppercase tracking-wide">Date</th>
@@ -1344,7 +1881,9 @@ function AttendanceContent() {
 
                       // Determine row highlight
                       let rowBg = '';
-                      if (missingIO) rowBg = 'bg-oe-danger/5 border-l-2 border-oe-danger';
+                      if (r.status === 'absent') rowBg = 'bg-oe-danger/5 border-l-2 border-oe-danger';
+                      else if (r.status === 'leave') rowBg = 'bg-oe-warning/5 border-l-2 border-oe-warning';
+                      else if (missingIO) rowBg = 'bg-oe-danger/5 border-l-2 border-oe-danger';
                       else if (isShort || isLate) rowBg = 'bg-oe-warning/5 border-l-2 border-oe-warning';
 
                       return (
@@ -1388,6 +1927,10 @@ function AttendanceContent() {
                               <span className="inline-flex items-center gap-1 text-xs font-medium text-oe-success bg-oe-success/10 px-2 py-0.5 rounded-full">Present</span>
                             ) : r.status === 'absent' ? (
                               <span className="inline-flex items-center gap-1 text-xs font-medium text-oe-danger bg-oe-danger/10 px-2 py-0.5 rounded-full">Absent</span>
+                            ) : r.status === 'leave' ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-oe-warning bg-oe-warning/10 px-2 py-0.5 rounded-full">Leave</span>
+                            ) : r.status === 'half_day' ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-oe-purple bg-oe-purple/10 px-2 py-0.5 rounded-full">Half Day</span>
                             ) : (
                               <span className="inline-flex items-center gap-1 text-xs font-medium text-oe-muted bg-oe-surface px-2 py-0.5 rounded-full">{r.status || '—'}</span>
                             )}
@@ -1507,7 +2050,15 @@ function AttendanceContent() {
         </div>
       ) : null}
 
-      {/* ── Edit / Delete modals (HR & super_admin only) ──────────────── */}
+      {/* ── Add / Edit / Delete modals (HR & super_admin only) ─────────── */}
+      {isHRAdmin && showAddModal && employeeId && (
+        <AddAttendanceModal
+          employeeId={employeeId}
+          employeeName={data?.employee ? `${data.employee.first_name} ${data.employee.last_name} — ${data.employee.emp_code}` : ''}
+          onSave={() => { setShowAddModal(false); loadSummary(); setAllRefreshTick(n => n + 1); }}
+          onClose={() => setShowAddModal(false)}
+        />
+      )}
       {isHRAdmin && editRecord && (
         <EditAttendanceModal
           record={editRecord}
